@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}FakeNgin · 首页{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <h1 class="hero-title">FakeNgin</h1>
+    <p class="hero-subtitle">
+        简介占位：此处将用于介绍 FakeNgin 谣言检测平台的目标、数据来源与核心能力。
+    </p>
+
+    <div class="cards">
+        <div class="card">
+            <h3>谣言数据展示</h3>
+            <p>浏览与检索已收集的谣言数据。</p>
+            <a class="btn btn-primary" href="{{ url_for('main.data') }}">进入</a>
+        </div>
+        <div class="card">
+            <h3>谣言检测系统</h3>
+            <p>对文本进行自动谣言检测与分析。</p>
+            <a class="btn btn-primary" href="{{ url_for('main.detect') }}">进入</a>
+        </div>
+        <div class="card">
+            <h3>人工校验系统</h3>
+            <p>对检测结果进行人工复核与标注。</p>
+            <a class="btn btn-primary" href="{{ url_for('main.verify') }}">进入</a>
+        </div>
+    </div>
+</section>
+{% endblock %}

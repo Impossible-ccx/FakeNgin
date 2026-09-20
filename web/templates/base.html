@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}FakeNgin{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <header class="navbar">
+        <div class="nav-inner">
+            <a class="brand" href="{{ url_for('main.index') }}">FakeNgin</a>
+            <nav class="nav-links">
+                <a href="{{ url_for('main.data') }}">谣言数据展示</a>
+                <a href="{{ url_for('main.detect') }}">谣言检测系统</a>
+                <a href="{{ url_for('main.verify') }}">人工校验系统</a>
+            </nav>
+            <div class="nav-account">
+                {% if current_user %}
+                    <span class="user-name">{{ current_user.username }}</span>
+                    <a class="btn btn-ghost btn-sm" href="{{ url_for('main.logout') }}">登出</a>
+                {% else %}
+                    <a class="btn btn-ghost btn-sm" href="{{ url_for('main.login') }}">登录</a>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+
+    <main class="page">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <span>FakeNgin · 谣言检测平台</span>
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}FakeNgin · 谣言数据展示{% endblock %}
+
+{% block head %}
+<script src="{{ url_for('static', filename='echarts.min.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <h2>谣言数据展示</h2>
+    <p class="placeholder-note">页面占位：后续将在此展示谣言数据集与统计信息。</p>
+    <div id="data-chart" class="chart"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    var chart = echarts.init(document.getElementById('data-chart'));
+    chart.setOption({
+        tooltip: { trigger: 'axis' },
+        grid: { left: 40, right: 20, top: 30, bottom: 30 },
+        xAxis: {
+            type: 'category',
+            data: ['示例A', '示例B', '示例C', '示例D', '示例E'],
+            axisLine: { lineStyle: { color: '#9aa5b1' } }
+        },
+        yAxis: {
+            type: 'value',
+            axisLine: { show: false },
+            splitLine: { lineStyle: { color: '#eef1f5' } }
+        },
+        series: [{
+            type: 'bar',
+            data: [12, 19, 8, 15, 10],
+            itemStyle: { color: '#3b82f6', borderRadius: [4, 4, 0, 0] },
+            barWidth: '45%'
+        }]
+    });
+    window.addEventListener('resize', function () { chart.resize(); });
+</script>
+{% endblock %}
