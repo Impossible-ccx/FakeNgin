@@ -4,7 +4,7 @@ from pathlib import Path
 
 from flask import Flask
 
-from . import auth, db
+from . import auth, db, newsdata
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WEB_DIR = PROJECT_ROOT / "web"
@@ -21,6 +21,7 @@ def create_app():
     app.secret_key = SECRET_KEY
 
     db.ensure_database()
+    newsdata.ensure_newsdata()
 
     from .routes import main
 
