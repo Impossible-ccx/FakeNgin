@@ -6,6 +6,10 @@ MODEL_MODULES 中登记文件名即可。
 """
 
 
+class CheckError(Exception):
+    """检测过程失败（请求异常、结果无法解析等）。"""
+
+
 class CheckModel:
     name = ""
     display_name = ""
@@ -15,6 +19,13 @@ class CheckModel:
         """加载时初始化，默认无需处理。"""
         pass
 
+    def detect(self):
+        """检查模型在当前环境是否可用，默认恒可用。"""
+        return True
+
     def check(self, message):
-        """检测消息，返回 (虚假概率 0-100, 额外信息字符串)。"""
+        """检测消息，返回 (虚假概率 0-100, 额外信息字符串)。
+
+        失败时抛出 CheckError。
+        """
         raise NotImplementedError

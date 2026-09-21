@@ -1,6 +1,7 @@
 """谣言检测系统页。"""
 
 import checkmodel
+from checkmodel.base import CheckError
 from flask import flash, render_template, request
 
 from . import main
@@ -36,17 +37,23 @@ def detect():
             try:
                 model = checkmodel.get_model(selected)
             except KeyError:
-                flash("所选模型不存在", "error")
+                flash("所选模型不存在或不可用", "error")
             else:
-                probability, extra_info = model.check(message)
-                percentage = max(0, min(100, int(round(float(probability)))))
-                level, warning = _warning(percentage)
-                result = {
-                    "percentage": percentage,
-                    "level": level,
-                    "warning": warning,
-                    "extra_info": extra_info,
-                }
+                try:
+                    probability, extra_info = model.check(message)
+                except CheckError as exc:
+                    flash(str(exc), "error")
+                except Exception:
+                    flash("检测失败，请稍后重试", "error")
+                else:
+                    percentage = max(0, min(100, int(round(float(probability)))))
+                    level, warning = _warning(percentage)
+                    result = {
+                        "percentage": percentage,
+                        "level": level,
+                        "warning": warning,
+                        "extra_info": extra_info,
+                    }
 
     selected_label = next(
         (m["display_name"] for m in models if m["id"] == selected),

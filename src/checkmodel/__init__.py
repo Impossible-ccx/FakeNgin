@@ -1,17 +1,19 @@
 """谣言检测模型工厂。
 
-手动维护 MODEL_MODULES 列表以登记模型；对每个模型文件，导入其
-MODEL_CLASS 并以 name 注册。模型实例在首次使用时惰性创建并调用
-initialize()。
+手动维护 MODEL_MODULES 列表以登记模型；首次加载时对每个模型执行
+实例化 -> detect() -> initialize()，仅保留可用模型。
 """
 
 import importlib
 
 MODEL_MODULES = [
-    "template_model"
+    "template_model",
+    "ollama_qwen25",
 ]
 
 _instances = {}
+_available = {}
+_loaded = False
 
 
 def _load_module_class(module_name):
@@ -22,30 +24,48 @@ def _load_module_class(module_name):
     return model_class
 
 
+def _ensure_loaded():
+    """加载全部模型并执行 initialize + detect，仅登记可用模型。"""
+    global _loaded
+    if _loaded:
+        return
+    for module_name in MODEL_MODULES:
+        try:
+            model_class = _load_module_class(module_name)
+            instance = model_class()
+            available = bool(instance.detect())
+            if(available):
+                instance.initialize()
+        except Exception:
+            available = False
+            instance = None
+        if available:
+            _instances[model_class.name] = instance
+            _available[model_class.name] = True
+    _loaded = True
+
+
 def get_models():
-    """返回全部模型的元信息（不实例化、不初始化）。"""
+    """返回全部可用模型的元信息。"""
+    _ensure_loaded()
     models = []
     for module_name in MODEL_MODULES:
-        model_class = _load_module_class(module_name)
-        models.append({
-            "id": model_class.name,
-            "display_name": model_class.display_name,
-            "description": model_class.description,
-        })
+        try:
+            model_class = _load_module_class(module_name)
+        except Exception:
+            continue
+        if _available.get(model_class.name):
+            models.append({
+                "id": model_class.name,
+                "display_name": model_class.display_name,
+                "description": model_class.description,
+            })
     return models
 
 
 def get_model(model_id):
-    """按 id 获取模型实例，首次调用时初始化并缓存。"""
-    if model_id in _instances:
-        return _instances[model_id]
-
-    for module_name in MODEL_MODULES:
-        model_class = _load_module_class(module_name)
-        if model_class.name == model_id:
-            instance = model_class()
-            instance.initialize()
-            _instances[model_id] = instance
-            return instance
-
-    raise KeyError(model_id)
+    """按 id 获取可用模型实例，不存在或不可用时抛出 KeyError。"""
+    _ensure_loaded()
+    if model_id not in _instances:
+        raise KeyError(model_id)
+    return _instances[model_id]
