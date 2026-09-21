@@ -105,6 +105,16 @@ def load_all():
     return pd.concat(frames, ignore_index=True)
 
 
+# ------------------------------------------------------------------ 搜索
+
+def search_messages(query, limit=3):
+    """按查询返回高相关消息（搜索算法暂未实现，先返回空列表）。
+
+    返回元素为与 load_all() 行结构一致的 dict。
+    """
+    return []
+
+
 # ------------------------------------------------------------------ 写入
 
 def append_message(data):

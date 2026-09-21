@@ -342,6 +342,38 @@ a {
     font-size: 13px;
 }
 
+.panel-blank {
+    min-height: 120px;
+}
+
+.search-bar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.search-bar input[type="text"] {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 15px;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.search-bar input[type="text"]:focus {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.search-empty {
+    color: var(--muted);
+    margin: 0;
+    padding: 20px 0;
+    text-align: center;
+}
+
 /* --------------------------------------------------------------- form */
 .form-grid {
     display: grid;
