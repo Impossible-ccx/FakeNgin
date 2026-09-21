@@ -1,42 +1,11 @@
-"""页面路由。"""
+"""人工校验系统页及消息的增删改、校验、跳过等操作。"""
 
-from flask import (
-    Blueprint,
-    flash,
-    make_response,
-    redirect,
-    render_template,
-    request,
-    session,
-    url_for,
-)
+from flask import flash, redirect, render_template, request, session, url_for
 
-from . import auth, db, newsdata
-
-main = Blueprint("main", __name__)
+from .. import auth, newsdata
+from . import main
 
 PAGE_SIZE = 20
-
-
-def _safe_next(target):
-    if target and target.startswith("/"):
-        return target
-    return None
-
-
-@main.route("/")
-def index():
-    return render_template("index.html")
-
-
-@main.route("/data")
-def data():
-    return render_template("data.html")
-
-
-@main.route("/detect")
-def detect():
-    return render_template("detect.html")
 
 
 @main.route("/verify")
@@ -68,32 +37,6 @@ def verify():
         total_pages=total_pages,
         now=newsdata.now_string(),
     )
-
-
-def _skip_key(row):
-    return "{}:{}".format(row["_file"], row["_signature"])
-
-
-def _next_check(message_table):
-    """返回 (待校验消息, 状态)。状态为 ready / all_skipped / all_verified。"""
-    unverified = message_table[message_table["nature"] == newsdata.DEFAULT_NATURE]
-    current_keys = {_skip_key(row) for _, row in unverified.iterrows()}
-    skip_keys = [key for key in session.get("verify_skip", []) if key in current_keys]
-    session["verify_skip"] = skip_keys
-
-    if unverified.empty:
-        return None, "all_verified"
-
-    skip_set = set(skip_keys)
-    for _, row in unverified.iterrows():
-        if _skip_key(row) not in skip_set:
-            return row.to_dict(), "ready"
-    return None, "all_skipped"
-
-
-def _page_arg():
-    page = request.form.get("page", 1, type=int)
-    return page if page and page > 0 else 1
 
 
 @main.route("/verify/add", methods=["POST"])
@@ -192,36 +135,35 @@ def verify_reset_skip():
     return redirect(url_for("main.verify"))
 
 
+# ------------------------------------------------------------- helpers
+
+def _skip_key(row):
+    return "{}:{}".format(row["_file"], row["_signature"])
+
+
+def _next_check(message_table):
+    """返回 (待校验消息, 状态)。状态为 ready / all_skipped / all_verified。"""
+    unverified = message_table[message_table["nature"] == newsdata.DEFAULT_NATURE]
+    current_keys = {_skip_key(row) for _, row in unverified.iterrows()}
+    skip_keys = [key for key in session.get("verify_skip", []) if key in current_keys]
+    session["verify_skip"] = skip_keys
+
+    if unverified.empty:
+        return None, "all_verified"
+
+    skip_set = set(skip_keys)
+    for _, row in unverified.iterrows():
+        if _skip_key(row) not in skip_set:
+            return row.to_dict(), "ready"
+    return None, "all_skipped"
+
+
 def _remove_skip(key):
     skip_keys = session.get("verify_skip", [])
     if key in skip_keys:
         session["verify_skip"] = [k for k in skip_keys if k != key]
 
 
-@main.route("/login", methods=["GET", "POST"])
-def login():
-    error = None
-    username = ""
-
-    if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-
-        user = db.find_user(username)
-        if user is None or user["password"] != password:
-            error = "账户或密码错误"
-        else:
-            session_id = auth.login_user(user["username"])
-            target = _safe_next(request.args.get("next"))
-            response = make_response(redirect(target or url_for("main.index")))
-            return auth.set_session_cookie(response, session_id)
-
-    return render_template("login.html", error=error, username=username)
-
-
-@main.route("/logout")
-def logout():
-    session_id = request.cookies.get(auth.SESSION_COOKIE)
-    auth.logout_user(session_id)
-    response = make_response(redirect(url_for("main.index")))
-    return auth.clear_session_cookie(response)
+def _page_arg():
+    page = request.form.get("page", 1, type=int)
+    return page if page and page > 0 else 1

@@ -484,6 +484,11 @@ a {
     color: #047857;
 }
 
+.nature-neutral {
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
 .nature-unknown {
     background: #f1f5f9;
     color: #64748b;

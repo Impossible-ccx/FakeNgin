@@ -27,8 +27,8 @@ COLUMNS = [
     "publish_time",
     "process_time",
 ]
-NATURES = ["虚假", "真实", "未校验"]
-VERIFY_NATURES = ["虚假", "真实"]
+NATURES = ["虚假", "真实", "中立", "未校验"]
+VERIFY_NATURES = ["虚假", "真实", "中立"]
 DEFAULT_NATURE = "未校验"
 
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
