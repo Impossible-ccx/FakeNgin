@@ -70,7 +70,7 @@ def _table_path(name):
     return path
 
 
-def _read_table(name):
+def read_table(name):
     df = pd.read_csv(_table_path(name), dtype=str).fillna("")
     return df.reindex(columns=COLUMNS).fillna("").reset_index(drop=True)
 
@@ -88,13 +88,18 @@ def _signature(row):
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
+def signature(row):
+    """公开的内容指纹计算（供搜索等模块复用）。"""
+    return _signature(row)
+
+
 # -------------------------------------------------------------- 聚合读取
 
 def load_all():
     """把所有 newsdata 表聚合成一张逻辑表，附加 _file/_row/_signature。"""
     frames = []
     for name in list_tables():
-        df = _read_table(name)
+        df = read_table(name)
         df[META_COLUMNS[0]] = name
         df[META_COLUMNS[1]] = df.index
         df[META_COLUMNS[2]] = [_signature(row) for _, row in df.iterrows()]
@@ -108,11 +113,10 @@ def load_all():
 # ------------------------------------------------------------------ 搜索
 
 def search_messages(query, limit=3):
-    """按查询返回高相关消息（搜索算法暂未实现，先返回空列表）。
+    """按查询返回高相关消息（转发到 bm25 模块）。"""
+    from .bm25 import search
 
-    返回元素为与 load_all() 行结构一致的 dict。
-    """
-    return []
+    return search(query, limit)
 
 
 # ------------------------------------------------------------------ 写入
@@ -121,7 +125,7 @@ def append_message(data):
     """人工添加消息，写入 manual.csv。"""
     path = NEWSDATA_DIR / MANUAL_FILE
     if path.exists():
-        df = _read_table(MANUAL_FILE)
+        df = read_table(MANUAL_FILE)
     else:
         df = pd.DataFrame(columns=COLUMNS)
 
@@ -133,7 +137,7 @@ def append_message(data):
 def _locate(name, row, signature):
     """校验目标文件与目标行，返回 (path, df, row)。"""
     path = _table_path(name)
-    df = _read_table(name)
+    df = read_table(name)
     if row < 0 or row >= len(df):
         raise ValueError("消息不存在，可能已被删除")
     if signature and signature != _signature(df.iloc[row]):
