@@ -5,6 +5,8 @@ __pycache__/
 *.egg
 
 .env
+.env.*
+!.env.example
 .venv/
 venv/
 env/
@@ -18,3 +20,11 @@ htmlcov/
 *.swp
 
 database/
+database_backup_*/
+fakengin.db_backup_*/
+
+# Local development instructions, plans, and code indexes
+docs/
+.codegraph/
+AGENTS.md
+/虚假信息平台+学习内容推荐系统.pdf

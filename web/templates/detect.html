@@ -14,6 +14,7 @@
     </p>
 
     <form method="post" action="{{ url_for('main.detect') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
         <label class="field field-wide">
             <span>消息内容</span>
             <textarea name="message" rows="4" placeholder="请输入消息内容">{{ message }}</textarea>
@@ -21,6 +22,7 @@
 
         <div class="field">
             <span>检测模型</span>
+            {% if models %}
             <div class="model-options">
                 {% for m in models %}
                 <div class="model-option">
@@ -32,10 +34,34 @@
                 </div>
                 {% endfor %}
             </div>
+            {% else %}
+            <div class="model-status model-status-unavailable">
+                <p>当前没有可用模型，暂时无法提交检测。各模型状态：</p>
+                <ul>
+                    {% for status in model_status %}
+                    <li><strong>{{ status.module }}</strong>：{{ status.reason or "不可用" }}</li>
+                    {% endfor %}
+                </ul>
+                <p>请按 README 的说明检查模型配置或服务状态，然后点击下方“重新探测模型”。</p>
+            </div>
+            {% endif %}
+            <div class="model-status">
+                <form method="post" action="{{ url_for('main.detect_reprobe') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                    <button type="submit" class="btn btn-ghost btn-sm">重新探测模型</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="field">
+            <label class="radio">
+                <input type="checkbox" name="save_for_review" value="1">
+                <span>保存该消息并提交人工复核（需登录；不勾选时本次输入不会被保存）</span>
+            </label>
         </div>
 
         <div class="form-actions">
-            <button type="submit" class="btn btn-primary">检测</button>
+            <button type="submit" class="btn btn-primary" {% if not models %}disabled{% endif %}>检测</button>
         </div>
     </form>
 </section>

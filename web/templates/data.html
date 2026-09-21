@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% set nature_class = {'虚假': 'fake', '真实': 'real', '中立': 'neutral', '未校验': 'unknown'} %}
+{% set nature_class = {'虚假': 'fake', '真实': 'real', '中立': 'neutral', '证据不足': 'neutral', '未校验': 'unknown'} %}
 
 {% block title %}FakeNgin · 谣言数据展示{% endblock %}
 
@@ -7,66 +7,124 @@
 <section class="panel">
     <div class="panel-head">
         <h2>消息搜索</h2>
-        <span class="panel-meta">输入关键词，展示最相关的 3 条消息</span>
+        <span class="panel-meta">BM25 相关度排序 · 可分页与筛选</span>
     </div>
 
     <form class="search-bar" method="get" action="{{ url_for('main.data') }}">
-        <input type="text" name="q" value="{{ query }}" placeholder="输入关键词搜索消息">
+        <input type="text" name="q" value="{{ filters.q }}" placeholder="输入关键词搜索消息">
+        <select name="nature">
+            <option value="">全部性质</option>
+            {% for n in nature_options %}
+            <option value="{{ n }}" {% if filters.nature == n %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+        </select>
+        {% if sources %}
+        <select name="source">
+            <option value="">全部来源</option>
+            {% for s in sources %}
+            <option value="{{ s }}" {% if filters.source == s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+        </select>
+        {% endif %}
+        <input type="date" name="time_from" value="{{ filters.time_from }}" title="发出时间从">
+        <input type="date" name="time_to" value="{{ filters.time_to }}" title="发出时间到">
         <button type="submit" class="btn btn-primary">搜索</button>
     </form>
 
-    {% if query %}
-        {% if search_results %}
+    {% if filters.q %}
+        {% if search and search.rows %}
+        <p class="search-count">共 {{ search.total }} 条结果（第 {{ search.page }} / {{ search.total_pages }} 页）</p>
         <div class="table-wrap">
             <table class="msg-table">
                 <thead>
                     <tr>
                         <th>消息内容</th>
                         <th>性质</th>
-                        <th>虚假概率</th>
+                        <th>模型风险评分</th>
                         <th>来源</th>
                         <th>发出时间</th>
-                        <th>处理时间</th>
+                        <th class="ops-col">操作</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for r in search_results %}
+                    {% for r in search.rows %}
                     <tr>
                         <td class="cell-content"><div class="clamp">{{ r.content }}</div></td>
                         <td><span class="nature nature-{{ nature_class.get(r.nature, 'unknown') }}">{{ r.nature }}</span></td>
-                        <td>{% if r.fake_probability %}{{ r.fake_probability }}%{% else %}<span class="muted">—</span>{% endif %}</td>
+                        <td>{% if r.fake_probability is not none %}{{ r.fake_probability }}%{% else %}<span class="muted">未检测</span>{% endif %}</td>
                         <td>{{ r.source }}</td>
                         <td class="cell-time">{{ r.publish_time or '—' }}</td>
-                        <td class="cell-time">{{ r.process_time or '—' }}</td>
+                        <td class="ops-col">
+                            <a class="btn btn-sm" href="{{ url_for('main.message_detail', message_id=r.id) }}">详情</a>
+                            <a class="btn btn-sm" href="{{ url_for('main.verify', queue='all') }}">复核</a>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
+        {% if search.total_pages > 1 %}
+        <div class="pagination">
+            {% if search.page > 1 %}
+            <a class="btn btn-sm" href="{{ url_for('main.data', q=filters.q, nature=filters.nature or none, source=filters.source or none, time_from=filters.time_from or none, time_to=filters.time_to or none, spage=search.page - 1) }}">上一页</a>
+            {% else %}
+            <span class="btn btn-sm btn-disabled">上一页</span>
+            {% endif %}
+            <span class="page-info">第 {{ search.page }} / {{ search.total_pages }} 页</span>
+            {% if search.page < search.total_pages %}
+            <a class="btn btn-sm" href="{{ url_for('main.data', q=filters.q, nature=filters.nature or none, source=filters.source or none, time_from=filters.time_from or none, time_to=filters.time_to or none, spage=search.page + 1) }}">下一页</a>
+            {% else %}
+            <span class="btn btn-sm btn-disabled">下一页</span>
+            {% endif %}
+        </div>
+        {% endif %}
         {% else %}
-        <p class="search-empty">暂无相关结果</p>
+        <p class="search-empty">暂无相关结果，可调整关键词或筛选条件。</p>
         {% endif %}
     {% endif %}
 </section>
 
-<section class="panel panel-blank"></section>
+<section class="panel">
+    <div class="panel-head">
+        <h2>热点关键词</h2>
+        <span class="panel-meta">
+            {% if cloud_meta.scope == 'window' %}
+                近 {{ cloud_meta.window_days }} 天 · {{ cloud_meta.message_count }} 条消息
+            {% else %}
+                全部 {{ cloud_meta.message_count }} 条消息（时间窗口内无数据）
+            {% endif %}
+            · 点击关键词直接搜索
+        </span>
+    </div>
+    {% if cloud %}
+    <div class="wordcloud">
+        {% set max_count = cloud[0].count %}
+        {% for kw in cloud %}
+        <a class="cloud-term" href="{{ url_for('main.data', q=kw.term) }}"
+           style="font-size: {{ (13 + 17 * (kw.count / max_count)) | round(0) | int }}px;">{{ kw.term }}</a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="search-empty">暂无消息数据，无法生成词云。</p>
+    {% endif %}
+</section>
 
 <section class="panel">
     <div class="panel-head">
         <h2>全部消息</h2>
-        <span class="panel-meta">共 {{ total }} 条 · 第 {{ page }} / {{ total_pages }} 页</span>
+        <span class="panel-meta">按发出时间倒序 · 共 {{ total }} 条</span>
     </div>
 
     <div class="table-wrap">
-        <table class="msg-table">
+        <table class="msg-table" id="all-messages">
             <thead>
                 <tr>
                     <th>消息内容</th>
                     <th>性质</th>
-                    <th>虚假概率</th>
+                    <th>模型风险评分</th>
                     <th>来源</th>
                     <th>发出时间</th>
-                    <th>处理时间</th>
+                    <th class="ops-col">操作</th>
                 </tr>
             </thead>
             <tbody>
@@ -74,10 +132,10 @@
                 <tr>
                     <td class="cell-content"><div class="clamp">{{ r.content }}</div></td>
                     <td><span class="nature nature-{{ nature_class.get(r.nature, 'unknown') }}">{{ r.nature }}</span></td>
-                    <td>{% if r.fake_probability %}{{ r.fake_probability }}%{% else %}<span class="muted">—</span>{% endif %}</td>
+                    <td>{% if r.fake_probability is not none %}{{ r.fake_probability }}%{% else %}<span class="muted">未检测</span>{% endif %}</td>
                     <td>{{ r.source }}</td>
                     <td class="cell-time">{{ r.publish_time or '—' }}</td>
-                    <td class="cell-time">{{ r.process_time or '—' }}</td>
+                    <td class="ops-col"><a class="btn btn-sm" href="{{ url_for('main.message_detail', message_id=r.id) }}">详情</a></td>
                 </tr>
                 {% else %}
                 <tr><td colspan="6" class="empty">暂无消息</td></tr>
@@ -86,18 +144,30 @@
         </table>
     </div>
 
+    <div class="load-more">
+        <button type="button" class="btn btn-sm" id="load-more-btn"
+                data-offset="{{ rows | length }}" {% if rows | length >= total %}disabled{% endif %}>
+            加载更多
+        </button>
+        <span class="page-info" id="load-more-status"></span>
+    </div>
+
     <div class="pagination">
         {% if page > 1 %}
-        <a class="btn btn-sm" href="{{ url_for('main.data', page=page-1, q=query or None) }}">上一页</a>
+        <a class="btn btn-sm" href="{{ url_for('main.data', page=page-1) }}">上一页</a>
         {% else %}
         <span class="btn btn-sm btn-disabled">上一页</span>
         {% endif %}
         <span class="page-info">第 {{ page }} / {{ total_pages }} 页</span>
         {% if page < total_pages %}
-        <a class="btn btn-sm" href="{{ url_for('main.data', page=page+1, q=query or None) }}">下一页</a>
+        <a class="btn btn-sm" href="{{ url_for('main.data', page=page+1) }}">下一页</a>
         {% else %}
         <span class="btn btn-sm btn-disabled">下一页</span>
         {% endif %}
     </div>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/load_more.js') }}"></script>
 {% endblock %}

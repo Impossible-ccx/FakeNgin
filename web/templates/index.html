@@ -4,27 +4,46 @@
 
 {% block content %}
 <section class="hero">
-    <h1 class="hero-title">FakeNgin</h1>
+    <h1 class="hero-title">FakeNgin 谣言检测平台</h1>
     <p class="hero-subtitle">
-        简介占位：此处将用于介绍 FakeNgin 谣言检测平台的目标、数据来源与核心能力。
+        面向社交媒体消息的谣言检测与人工复核平台：消息导入 → 模型风险评分（自动预警）→
+        人工审核确认 → 数据展示与检索。模型输出的是“风险评分”，仅供预警参考；
+        每条消息的最终结论以登录用户的人工审核记录为准。
     </p>
 
     <div class="cards">
         <div class="card">
             <h3>谣言数据展示</h3>
-            <p>浏览与检索已收集的谣言数据。</p>
+            <p>按时间倒序浏览消息，关键词搜索可分页、可按性质/来源/时间筛选，热点关键词词云一键筛选，点击查看检测与审核全记录。</p>
             <a class="btn btn-primary" href="{{ url_for('main.data') }}">进入</a>
         </div>
         <div class="card">
             <h3>谣言检测系统</h3>
-            <p>对文本进行自动谣言检测与分析。</p>
+            <p>输入文本获取模型风险评分（0–100，越高越可疑）与理由。默认不保存输入；登录后可勾选“保存并提交复核”进入人工队列。</p>
             <a class="btn btn-primary" href="{{ url_for('main.detect') }}">进入</a>
         </div>
         <div class="card">
             <h3>人工校验系统</h3>
-            <p>对检测结果进行人工复核与标注。</p>
+            <p>登录后管理消息：发起单条或批量模型检测，查看检测状态与历史，按证据记录人工结论，形成可追溯的审核链。</p>
             <a class="btn btn-primary" href="{{ url_for('main.verify') }}">进入</a>
         </div>
     </div>
+</section>
+
+<section class="panel">
+    <div class="panel-head">
+        <h2>平台状态</h2>
+        <span class="panel-meta">实时统计</span>
+    </div>
+    <div class="stats-grid">
+        <div class="stat"><strong>{{ stats.messages }}</strong><span>消息总数</span></div>
+        <div class="stat"><strong>{{ stats.pending_reviews }}</strong><span>待复核</span></div>
+        <div class="stat"><strong>{{ stats.reviewed }}</strong><span>已处理</span></div>
+        <div class="stat"><strong>{{ stats.detection_runs }}</strong><span>检测记录</span></div>
+        <div class="stat"><strong>{{ stats.models }}</strong><span>可用模型</span></div>
+    </div>
+    {% if stats.models == 0 %}
+    <p class="check-notice">当前没有可用模型：自动检测暂不可用，可在检测页查看各模型状态并重新探测。</p>
+    {% endif %}
 </section>
 {% endblock %}

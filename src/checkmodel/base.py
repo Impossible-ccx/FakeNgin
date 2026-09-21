@@ -23,6 +23,10 @@ class CheckModel:
         """检查模型在当前环境是否可用，默认恒可用。"""
         return True
 
+    def unavailable_reason(self):
+        """detect() 返回 False 时向用户展示的原因，不含密钥等敏感值。"""
+        return "模型在当前环境不可用"
+
     def check(self, message):
         """检测消息，返回 (虚假概率 0-100, 额外信息字符串)。
 

@@ -6,13 +6,17 @@
 
 import importlib
 
+import config  # 加载本地 .env；进程环境变量优先
+
 MODEL_MODULES = [
+    "compatible_api",
     "template_model",
     "ollama_qwen25",
 ]
 
 _instances = {}
 _available = {}
+_status = []
 _loaded = False
 
 
@@ -24,25 +28,42 @@ def _load_module_class(module_name):
     return model_class
 
 
-def _ensure_loaded():
-    """加载全部模型并执行 initialize + detect，仅登记可用模型。"""
-    global _loaded
-    if _loaded:
-        return
+def _unavailable_reason(instance):
+    try:
+        reason = instance.unavailable_reason()
+    except Exception:
+        reason = ""
+    return str(reason).strip() or "模型在当前环境不可用"
+
+
+def _probe_all():
+    """探测全部模型，记录实例、可用性与不可用原因。"""
+    global _instances, _available, _status, _loaded
+    instances = {}
+    available = {}
+    status = []
     for module_name in MODEL_MODULES:
+        entry = {"module": module_name, "available": False, "reason": ""}
         try:
             model_class = _load_module_class(module_name)
             instance = model_class()
-            available = bool(instance.detect())
-            if(available):
+            if instance.detect():
                 instance.initialize()
-        except Exception:
-            available = False
-            instance = None
-        if available:
-            _instances[model_class.name] = instance
-            _available[model_class.name] = True
+                instances[model_class.name] = instance
+                available[model_class.name] = True
+                entry["available"] = True
+            else:
+                entry["reason"] = _unavailable_reason(instance)
+        except Exception as exc:
+            entry["reason"] = "{}: {}".format(type(exc).__name__, exc)
+        status.append(entry)
+    _instances, _available, _status = instances, available, status
     _loaded = True
+
+
+def _ensure_loaded():
+    if not _loaded:
+        _probe_all()
 
 
 def get_models():
@@ -55,12 +76,27 @@ def get_models():
         except Exception:
             continue
         if _available.get(model_class.name):
+            instance = _instances[model_class.name]
             models.append({
                 "id": model_class.name,
-                "display_name": model_class.display_name,
-                "description": model_class.description,
+                "display_name": instance.display_name,
+                "description": instance.description,
             })
     return models
+
+
+def get_model_status():
+    """返回每个登记模块的可用性与不可用原因，供界面状态提示。"""
+    _ensure_loaded()
+    return [dict(entry) for entry in _status]
+
+
+def reprobe():
+    """重新探测全部模型；模型服务恢复后无需重启应用。返回可用模型数。"""
+    global _loaded
+    _loaded = False
+    _ensure_loaded()
+    return len(_available)
 
 
 def get_model(model_id):

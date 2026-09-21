@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timedelta
 from functools import wraps
 
-from flask import redirect, request, url_for
+from flask import abort, redirect, request, url_for
 
 from . import db
 
@@ -67,6 +67,22 @@ def set_session_cookie(response, session_id):
 def clear_session_cookie(response):
     response.delete_cookie(SESSION_COOKIE)
     return response
+
+
+def role_required(*roles):
+    """登录且角色匹配才可访问；写接口服务端强制校验，不依赖前端隐藏按钮。"""
+
+    def decorator(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            user = get_current_user()
+            if user is None:
+                return redirect(url_for("main.login", next=request.path))
+            if roles and user.get("role") not in roles:
+                abort(403, description="当前账户角色无权执行该操作")
+            return view(*args, **kwargs)
+        return wrapped
+    return decorator
 
 
 def login_required(view):

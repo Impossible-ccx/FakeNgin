@@ -5,11 +5,12 @@ ollama 为可选依赖：运行环境未安装或模型不存在时，detect() �
 """
 
 import json
+import os
 
 from .base import CheckError, CheckModel
 
-MODEL_NAME = "qwen2.5:7b"
-REQUEST_TIMEOUT = 60
+MODEL_NAME = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+REQUEST_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "60"))
 MAX_ATTEMPTS = 2
 
 SYSTEM_PROMPT = (
@@ -24,20 +25,34 @@ class Ollama_Qwen25(CheckModel):
     description = "本地 Ollama 大模型 qwen2.5:7b，根据消息内容给出虚假概率与理由。"
     model_name = MODEL_NAME
 
+    def __init__(self):
+        self.display_name = MODEL_NAME + " (Ollama)"
+        self.description = "本地 Ollama 模型，根据消息内容给出风险评分与理由。"
+        self._unavailable_reason = ""
+
     def initialize(self):
         self.model_name = MODEL_NAME
+
+    def unavailable_reason(self):
+        return self._unavailable_reason or super().unavailable_reason()
 
     def detect(self):
         try:
             import ollama
         except ImportError:
+            self._unavailable_reason = "未安装 ollama Python 包"
             return False
         try:
             client = self._client(ollama)
             names = self._installed_models(client)
-        except Exception:
+        except Exception as exc:
+            self._unavailable_reason = "无法连接 Ollama 服务（{}）".format(
+                type(exc).__name__)
             return False
-        return any(name == self.model_name for name in names)
+        if not any(name == self.model_name for name in names):
+            self._unavailable_reason = "Ollama 服务上未找到模型 {}".format(self.model_name)
+            return False
+        return True
 
     def check(self, message):
         try:

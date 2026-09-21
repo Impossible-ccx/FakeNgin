@@ -1,13 +1,21 @@
-"""谣言检测系统页。"""
+"""谣言检测系统页。
+
+自由文本检测默认“不保存”；勾选“保存并提交复核”时，检测成功后把消息
+入库并记录一次已完成的检测任务，进入人工复核队列（需要登录）。
+"""
+
+import time
 
 import checkmodel
 from checkmodel.base import CheckError
-from flask import flash, render_template, request
+from flask import flash, redirect, render_template, request, url_for
 
+from .. import auth, detection, newsdata
 from . import main
 
 WARNING_HIGH = 70
 WARNING_MEDIUM = 40
+MAX_MESSAGE_LENGTH = 5000
 
 
 def _warning(percentage):
@@ -29,16 +37,28 @@ def detect():
 
     if request.method == "POST":
         message = request.form.get("message", "").strip()
+        save_mode = request.form.get("save_for_review") == "1"
         if not message:
             flash("请输入消息内容", "error")
+        elif len(message) > MAX_MESSAGE_LENGTH:
+            flash("消息内容过长（上限 {} 字）".format(MAX_MESSAGE_LENGTH), "error")
         elif not selected:
-            flash("请选择检测模型", "error")
+            flash("当前没有可用模型，请检查模型配置后再试", "error")
         else:
             try:
                 model = checkmodel.get_model(selected)
             except KeyError:
-                flash("所选模型不存在或不可用", "error")
-            else:
+                # 页面加载后模型才变为不可用：重新探测一次再判定。
+                checkmodel.reprobe()
+                models = checkmodel.get_models()
+                try:
+                    model = checkmodel.get_model(selected)
+                except KeyError:
+                    model = None
+                if model is None:
+                    flash("所选模型当前不可用，请重新选择或稍后再试", "error")
+            if model is not None:
+                started = time.time()
                 try:
                     probability, extra_info = model.check(message)
                 except CheckError as exc:
@@ -46,6 +66,7 @@ def detect():
                 except Exception:
                     flash("检测失败，请稍后重试", "error")
                 else:
+                    duration_ms = max(1, int((time.time() - started) * 1000))
                     percentage = max(0, min(100, int(round(float(probability)))))
                     level, warning = _warning(percentage)
                     result = {
@@ -54,6 +75,13 @@ def detect():
                         "warning": warning,
                         "extra_info": extra_info,
                     }
+                    if save_mode:
+                        if auth.get_current_user() is None:
+                            flash("保存并提交复核需要先登录，本次结果未保存", "error")
+                        else:
+                            _save_for_review(message, selected, model,
+                                             float(probability), extra_info,
+                                             duration_ms)
 
     selected_label = next(
         (m["display_name"] for m in models if m["id"] == selected),
@@ -63,8 +91,49 @@ def detect():
     return render_template(
         "detect.html",
         models=models,
+        model_status=checkmodel.get_model_status(),
         selected=selected,
         selected_label=selected_label,
         message=message,
         result=result,
+        current_user=auth.get_current_user(),
     )
+
+
+def _save_for_review(message, model_id, model, probability, reason, duration_ms):
+    """把自由文本检测结果入库并提交复核（检测任务记录为已完成）。"""
+    try:
+        message_id = newsdata.append_message({
+            "content": message,
+            "source": "检测页提交",
+        })
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return None
+    with newsdata.db.db_conn() as conn:
+        conn.execute(
+            "INSERT INTO detection_runs (message_id, model_id, model_name, "
+            "input_version, content_digest, status, probability, reason, "
+            "duration_ms, created_at, started_at, finished_at) "
+            "VALUES (?, ?, ?, 1, ?, 'succeeded', ?, ?, ?, ?, ?, ?)",
+            (
+                message_id, model_id, getattr(model, "display_name", model_id),
+                detection.content_digest(message),
+                probability, reason, duration_ms,
+                newsdata.db.now_string(), newsdata.db.now_string(),
+                newsdata.db.now_string(),
+            ),
+        )
+    flash("已保存为消息 #{} 并加入复核队列".format(message_id), "success")
+    return message_id
+
+
+@main.route("/detect/reprobe", methods=["POST"])
+def detect_reprobe():
+    """重新探测全部模型，模型服务恢复后无需重启应用。"""
+    count = checkmodel.reprobe()
+    if count:
+        flash("重新探测完成，发现 {} 个可用模型".format(count), "success")
+    else:
+        flash("重新探测完成，仍没有可用模型，请检查模型配置或服务状态", "error")
+    return redirect(url_for("main.detect"))

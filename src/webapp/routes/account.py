@@ -1,5 +1,7 @@
 """账户登录 / 登出。"""
 
+from urllib.parse import urlsplit
+
 from flask import make_response, redirect, render_template, request, url_for
 
 from .. import auth, db
@@ -7,9 +9,19 @@ from . import main
 
 
 def _safe_next(target):
-    if target and target.startswith("/"):
-        return target
-    return None
+    r"""只接受站内路径，其余一律回首页。
+
+    浏览器把 Location 中的反斜杠当作斜杠处理，因此先归一化再拒绝
+    协议相对地址（//host、/\host），防止外部回跳。
+    """
+    if not target or not target.startswith("/"):
+        return None
+    normalized = target.replace("\\", "/")
+    if normalized.startswith("//"):
+        return None
+    if urlsplit(normalized).netloc:
+        return None
+    return target
 
 
 @main.route("/login", methods=["GET", "POST"])
@@ -21,8 +33,8 @@ def login():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
 
-        user = db.find_user(username)
-        if user is None or user["password"] != password:
+        user = db.verify_user(username, password)
+        if user is None:
             error = "账户或密码错误"
         else:
             session_id = auth.login_user(user["username"])

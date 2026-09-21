@@ -15,6 +15,22 @@ document.addEventListener("DOMContentLoaded", function () {
         viewRow.hidden = false;
     }
 
+    function showReview(button) {
+        var viewRow = button.closest("tr");
+        var reviewRow = viewRow.nextElementSibling;
+        if (!reviewRow || !reviewRow.classList.contains("review-row")) return;
+        viewRow.hidden = true;
+        reviewRow.hidden = false;
+    }
+
+    function hideReview(button) {
+        var reviewRow = button.closest("tr");
+        var viewRow = reviewRow.previousElementSibling;
+        if (!viewRow) return;
+        reviewRow.hidden = true;
+        viewRow.hidden = false;
+    }
+
     function showDeleteConfirm(button) {
         var ops = button.closest(".ops-col");
         ops.querySelector(".js-edit").hidden = true;
@@ -35,6 +51,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
     document.querySelectorAll(".js-cancel").forEach(function (button) {
         button.addEventListener("click", function () { hideEdit(button); });
+    });
+
+    document.querySelectorAll(".js-review").forEach(function (button) {
+        button.addEventListener("click", function () { showReview(button); });
+    });
+
+    document.querySelectorAll(".js-review-cancel").forEach(function (button) {
+        button.addEventListener("click", function () { hideReview(button); });
     });
 
     document.querySelectorAll(".js-del").forEach(function (button) {

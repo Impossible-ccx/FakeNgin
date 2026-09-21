@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% set nature_class = {'虚假': 'fake', '真实': 'real', '中立': 'neutral', '证据不足': 'neutral', '未校验': 'unknown'} %}
+{% set run_label = {'pending': '排队中', 'running': '检测中', 'succeeded': '已完成', 'failed': '失败', 'interrupted': '已中断'} %}
+
+{% block title %}FakeNgin · 消息详情{% endblock %}
+
+{% block content %}
+{% if not message %}
+<section class="panel">
+    <div class="panel-head"><h2>消息不存在</h2></div>
+    <p class="check-notice">该消息可能已被删除。<a href="{{ url_for('main.data') }}">返回数据展示页</a></p>
+</section>
+{% else %}
+<section class="panel">
+    <div class="panel-head">
+        <h2>消息详情 <span class="panel-meta">#{{ message.id }}</span></h2>
+        <a class="btn btn-sm" href="{{ url_for('main.data') }}">返回列表</a>
+    </div>
+
+    <p class="detail-content">{{ message.content }}</p>
+
+    <div class="detail-meta">
+        <span>来源：{{ message.source or '—' }}</span>
+        <span>发出时间：{{ message.publish_time or '—' }}</span>
+        <span>处理时间：{{ message.process_time or '—' }}</span>
+        <span>当前性质：<span class="nature nature-{{ nature_class.get(message.nature, 'unknown') }}">{{ message.nature }}</span></span>
+        <span>模型风险评分：
+            {% set valid_runs = runs | selectattr('status', 'equalto', 'succeeded') | list %}
+            {% if valid_runs and valid_runs[0].probability is not none %}
+                {{ valid_runs[0].probability }}%
+                {% if valid_runs[0].stale %}（正文已修改·结果过期）{% endif %}
+            {% else %}未检测{% endif %}
+        </span>
+        {% if message.legacy_probability %}
+        <span class="nature nature-unknown">历史导入概率，来源未知</span>
+        {% endif %}
+    </div>
+
+    {% if message.image_ref %}
+    <p class="detail-image">关联图片：{{ message.image_ref }}</p>
+    {% endif %}
+
+    <div class="form-actions">
+        {% if current_user %}
+        <a class="btn btn-primary btn-sm" href="{{ url_for('main.verify', queue='all') }}">去人工复核</a>
+        {% else %}
+        <a class="btn btn-primary btn-sm" href="{{ url_for('main.login', next='/verify') }}">登录后复核</a>
+        {% endif %}
+    </div>
+
+    <p class="detect-extra">说明：模型风险评分仅为自动预警，不代表最终结论；人工结论以下方审核记录为准。</p>
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h2>检测记录</h2><span class="panel-meta">新 → 旧，历史不覆盖</span></div>
+    {% if runs %}
+    <div class="table-wrap">
+        <table class="msg-table">
+            <thead><tr><th>时间</th><th>模型</th><th>状态</th><th>风险评分</th><th>理由 / 错误</th><th>耗时</th></tr></thead>
+            <tbody>
+            {% for run in runs %}
+                <tr>
+                    <td class="cell-time">{{ run.finished_at or run.started_at or run.created_at }}</td>
+                    <td>{{ run.model_name or run.model_id or '—' }}</td>
+                    <td>{{ run_label.get(run.status, run.status) }}</td>
+                    <td>{% if run.probability is not none %}{{ run.probability }}{% if run.stale %} <span class="nature nature-unknown">过期</span>{% endif %}{% else %}—{% endif %}</td>
+                    <td class="cell-content"><div class="clamp">{{ run.reason or run.error or '—' }}</div></td>
+                    <td>{% if run.duration_ms %}{{ run.duration_ms }} ms{% else %}—{% endif %}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="check-notice">还没有检测记录。</p>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h2>人工审核记录</h2><span class="panel-meta">新 → 旧</span></div>
+    {% if reviews %}
+    <div class="table-wrap">
+        <table class="msg-table">
+            <thead><tr><th>时间</th><th>审核人</th><th>结论</th><th>证据 / 依据</th><th>说明</th></tr></thead>
+            <tbody>
+            {% for review in reviews %}
+                <tr>
+                    <td class="cell-time">{{ review.created_at }}</td>
+                    <td>{{ review.reviewer }}</td>
+                    <td><span class="nature nature-{{ nature_class.get(review.conclusion, 'unknown') }}">{{ review.conclusion }}</span></td>
+                    <td class="cell-content"><div class="clamp">{{ review.evidence or '—' }}</div></td>
+                    <td class="cell-content"><div class="clamp">{{ review.note or '—' }}</div></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="check-notice">还没有人工审核记录。</p>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <div class="panel-head"><h2>评论 / 传播结构</h2><span class="panel-meta">按发布时间排列</span></div>
+    {% if comments %}
+    <ul class="comment-tree">
+        {% for node in comments %}
+        {{ _render_comment(node) }}
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="check-notice">该消息暂无评论数据。</p>
+    {% endif %}
+</section>
+{% endif %}
+{% endblock %}
+
+{% macro _render_comment(node) %}
+<li>
+    <div class="comment-item">
+        <span class="cell-time">{{ node.publish_time or '时间未知' }}</span>
+        <span>{{ node.content }}</span>
+    </div>
+    {% if node.children %}
+    <ul class="comment-tree">
+        {% for child in node.children %}
+        {{ _render_comment(child) }}
+        {% endfor %}
+    </ul>
+    {% endif %}
+</li>
+{% endmacro %}

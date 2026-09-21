@@ -1,15 +1,19 @@
 """FakeNgin web 应用工厂。"""
 
 from pathlib import Path
+import os
+import secrets
 
 from flask import Flask
 
-from . import auth, db, newsdata
+import config  # 加载 .env，外部环境变量优先
+
+from . import auth, csrf, db, detection
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WEB_DIR = PROJECT_ROOT / "web"
 
-SECRET_KEY = "fakengin-secret-key"
+SECRET_KEY = os.getenv("FLASK_SECRET_KEY") or secrets.token_hex(32)
 
 
 def create_app():
@@ -19,9 +23,18 @@ def create_app():
         template_folder=str(WEB_DIR / "templates"),
     )
     app.secret_key = SECRET_KEY
+    app.config.update(
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        # 正式 HTTPS 部署时设置 FAKENGIN_COOKIE_SECURE=1
+        SESSION_COOKIE_SECURE=os.getenv("FAKENGIN_COOKIE_SECURE") == "1",
+    )
 
-    db.ensure_database()
-    newsdata.ensure_newsdata()
+    csrf.install(app)
+
+    db.init_db()
+    detection.recover_interrupted()
+    detection.start_worker()
 
     from .routes import main
 

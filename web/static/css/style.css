@@ -693,3 +693,137 @@ a {
         grid-template-columns: 1fr;
     }
 }
+.model-status {
+    margin-top: 12px;
+}
+
+.model-status-unavailable {
+    padding: 12px 14px;
+    border: 1px solid #fde68a;
+    border-radius: 8px;
+    background: #fffbeb;
+    color: #92400e;
+    font-size: 14px;
+}
+
+.model-status-unavailable ul {
+    margin: 8px 0;
+    padding-left: 20px;
+}
+
+.queue-tabs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.queue-meta {
+    color: var(--muted);
+    font-size: 13px;
+    margin-left: 8px;
+}
+
+.queue-actions {
+    margin-left: auto;
+}
+
+.review-run-meta {
+    color: var(--muted);
+    font-size: 13px;
+    margin: 0 0 10px;
+}
+
+.review-form .form-actions {
+    margin-top: 8px;
+}
+
+.wordcloud {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 14px;
+    line-height: 1.6;
+}
+
+.cloud-term {
+    color: var(--text, #1f2937);
+    text-decoration: none;
+}
+
+.cloud-term:hover {
+    color: var(--primary, #2563eb);
+    text-decoration: underline;
+}
+
+.search-count {
+    color: var(--muted);
+    font-size: 13px;
+    margin: 8px 0;
+}
+
+.load-more {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px;
+}
+
+.stat {
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 8px;
+    padding: 14px;
+    text-align: center;
+}
+
+.stat strong {
+    display: block;
+    font-size: 22px;
+    margin-bottom: 4px;
+}
+
+.stat span {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.detail-content {
+    font-size: 16px;
+    line-height: 1.8;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    color: var(--muted);
+    font-size: 14px;
+    margin: 14px 0;
+}
+
+.comment-tree {
+    list-style: none;
+    padding-left: 0;
+}
+
+.comment-tree ul {
+    list-style: none;
+    padding-left: 20px;
+    border-left: 2px solid var(--border, #e5e7eb);
+}
+
+.comment-item {
+    display: flex;
+    gap: 12px;
+    padding: 6px 0;
+    font-size: 14px;
+}
