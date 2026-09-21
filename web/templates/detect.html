@@ -4,7 +4,57 @@
 
 {% block content %}
 <section class="panel">
-    <h2>谣言检测系统</h2>
-    <p class="placeholder-note">页面占位：后续将在此提供谣言自动检测与分析功能。</p>
+    <div class="panel-head">
+        <h2>谣言检测系统</h2>
+    </div>
+
+    <p class="detect-intro">
+        请输入待检测的消息，并选择检测模型。系统会输出该消息为谣言的虚假概率（0-100%，越接近 100% 表示越可能为谣言）
+        及相应提示。检测结果仅供参考，请结合消息来源与常识综合判断；本页面不会保存您的输入。
+    </p>
+
+    <form method="post" action="{{ url_for('main.detect') }}">
+        <label class="field field-wide">
+            <span>消息内容</span>
+            <textarea name="message" rows="4" placeholder="请输入消息内容">{{ message }}</textarea>
+        </label>
+
+        <div class="field">
+            <span>检测模型</span>
+            <div class="model-options">
+                {% for m in models %}
+                <div class="model-option">
+                    <label class="radio">
+                        <input type="radio" name="model" value="{{ m.id }}" {% if m.id == selected %}checked{% endif %}>
+                        <span class="model-name">{{ m.display_name }}</span>
+                    </label>
+                    <p class="model-desc">{{ m.description }}</p>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">检测</button>
+        </div>
+    </form>
 </section>
+
+{% if result %}
+<section class="panel">
+    <div class="panel-head">
+        <h2>检测结果</h2>
+        <span class="panel-meta">使用模型：{{ selected_label }}</span>
+    </div>
+
+    <div class="detect-result detect-{{ result.level }}">
+        <div class="detect-score">{{ result.percentage }}%</div>
+        <div class="detect-warning">{{ result.warning }}</div>
+    </div>
+
+    {% if result.extra_info %}
+    <p class="detect-extra">模型补充信息：{{ result.extra_info }}</p>
+    {% endif %}
+</section>
+{% endif %}
 {% endblock %}
