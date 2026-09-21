@@ -45,21 +45,7 @@ TERM_COLUMNS = ["term", "df"]
 
 # ------------------------------------------------------------ csv 读写
 
-def _read_csv(path, columns):
-    if not path.exists():
-        return pd.DataFrame(columns=columns)
-    try:
-        df = pd.read_csv(path, dtype=str).fillna("")
-    except pd.errors.EmptyDataError:
-        return pd.DataFrame(columns=columns)
-    return df.reindex(columns=columns).fillna("")
-
-
-def _write_csv(path, df, columns):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    df.to_csv(tmp, index=False, columns=columns)
-    tmp.replace(path)
+from .db import _read_csv, _write_csv
 
 
 def _as_int(value, default=0):
