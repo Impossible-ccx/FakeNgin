@@ -15,6 +15,7 @@ python src/app.py
 ```
 
 网页开放于 http://127.0.0.1:5000/ 
+测试账户为admin，密码为admin
 
 ## Model
 
