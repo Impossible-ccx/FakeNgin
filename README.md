@@ -20,3 +20,7 @@ python src/app.py
 ## Model
 
 添加其他模型查看src/checkmodel/下的__init__.py和base.py
+
+## Check
+
+newscheck脚本将检查现在可用的模型，控制台中进行选择后，对所有数据进行虚假度计算。
