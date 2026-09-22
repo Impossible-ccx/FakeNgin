@@ -9,8 +9,10 @@
 - 地址黑名单覆盖回环、私网、链路本地、组播、保留与未指定地址，
   含 IPv4 映射 IPv6（::ffff:x.x.x.x 按对应 IPv4 复查）。
 - 限流与预算：同来源请求起始间隔、每次任务的请求上限、全局截止时间。
-- 体积与时间上限：压缩与解压后各 1 MiB（流式累计实际字节），
-  连接 5s / 读取 10s / 单请求总 20s 截止。
+- 体积与时间上限：传输 1 MiB（流式累计实际字节），解压输出按剩余预算
+  分批取出（峰值内存与预算同量级，压缩炸弹在超限时立即拒绝），
+  连接 5s / 读取 10s / 单请求总 20s 截止（DNS 与连接阶段同样受
+  任务截止约束）。
 - 重试：网络错误与 5xx 最多重试 1 次（带退避，计入预算）；
   429 尊重 Retry-After（上限 60s，超预算则中止）；403 本轮停用不重试。
 - 不使用系统代理配置，TLS 证书校验保持开启。
@@ -19,11 +21,14 @@
 import http.client
 import ipaddress
 import logging
+import math
 import socket
+import sqlite3
 import ssl
 import threading
 import time
 import zlib
+from pathlib import Path
 from urllib.parse import urlsplit
 
 logger = logging.getLogger("fakengin.collect")
@@ -40,7 +45,13 @@ MIN_INTERVAL_SECONDS = 5.0              # 同来源请求起始最小间隔
 RETRY_BACKOFF_SECONDS = 2.0
 MAX_ATTEMPTS = 2                        # 首次 + 重试 1 次
 MAX_REDIRECTS = 2
-RETRY_AFTER_CAP = 60.0
+# 429 处理：服务端未给出 Retry-After 时按 60s 保守假设；
+# 给出时不缩短为更早重试（最多按 24h 封顶防溢出值）。
+RETRY_AFTER_DEFAULT = 60.0
+RETRY_AFTER_SANITY_MAX = 86400.0
+# 跨进程全局预算：全部来源合计每小时最多请求次数（重试也计入）。
+GLOBAL_WINDOW_SECONDS = 3600.0
+GLOBAL_MAX_REQUESTS = 120
 READ_CHUNK = 8192
 USER_AGENT = "FakeNgin-CourseBot/1.0 (course project rumor collector)"
 
@@ -49,9 +60,6 @@ XML_CONTENT_TYPES = {
     "text/xml", "application/rss", "text/rss",
 }
 JSON_CONTENT_TYPES = {"application/json", "text/json"}
-
-_interval_lock = threading.Lock()
-_next_allowed_at = {}  # source_id -> time.monotonic()
 
 
 class FetchError(Exception):
@@ -168,15 +176,16 @@ def parse_source_url(url, https_only=True):
 
 # ------------------------------------------------------------- 单次请求
 
-def _open_connection(scheme, host, port, ip):
+def _open_connection(scheme, host, port, ip, deadline):
     """连接到已校验的 IP（连接绑定），HTTPS 时按原主机名做 SNI 与证书校验。
 
-    socket 超时取“读取超时”与“单请求总截止”的较小值：getresponse 之后
-    socket 对象会被 http.client 标记关闭、无法再调整超时，因此必须在
-    请求前设定好；慢速持续响应最多阻塞到该值，总截止在读取间检查。
+    socket 超时取“连接/读取超时”与“任务剩余时间”的较小值：getresponse
+    之后 socket 对象会被 http.client 标记关闭、无法再调整超时，因此必须
+    在请求前设定好；慢速持续响应最多阻塞到该值，总截止在读取间检查。
     """
-    sock = socket.create_connection((ip, port), timeout=CONNECT_TIMEOUT)
-    sock.settimeout(min(READ_TIMEOUT, REQUEST_TOTAL_TIMEOUT))
+    remaining = max(0.5, deadline - time.monotonic())
+    sock = socket.create_connection((ip, port), timeout=min(CONNECT_TIMEOUT, remaining))
+    sock.settimeout(min(READ_TIMEOUT, REQUEST_TOTAL_TIMEOUT, remaining))
     if scheme == "https":
         context = ssl.create_default_context()  # 校验系统 CA 与主机名
         sock = context.wrap_socket(sock, server_hostname=host)
@@ -216,25 +225,48 @@ def _read_capped(resp, deadline):
     return chunks, total
 
 
-def _gunzip_capped(chunks):
-    """流式解压 gzip，解压后体积同样限制在 1 MiB。"""
+def _gunzip_capped(chunks, deadline=None):
+    """流式解压 gzip，解压后体积限制在 1 MiB 且峰值内存与预算同量级。
+
+    - decompress 的 max_length 参数按剩余预算分批取出输出，剩余输入经
+      unconsumed_tail 循环处理——单次调用不会把整段输入完整解压进内存，
+      因此压缩炸弹在超预算时立即拒绝，而不是先完整解压再截断；
+    - 流结束（eof）后仍有输入视为尾随数据：HTTP 传输编码 gzip 应只有
+      一个成员，出现尾随数据（含拼接的第二个 gzip 成员）一律拒绝；
+    - 输入耗尽但未到流结束视为截断，按可重试的网络错误处理；
+    - deadline 在每个输出批次间检查，慢速解压不越过任务截止时间。
+    """
     decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
     out = []
     total = 0
     for chunk in chunks:
-        data = decompressor.decompress(chunk)
-        total += len(data)
-        if total > MAX_DECOMPRESSED_BYTES:
-            raise FetchRejected("解压后体积超过 1 MiB 上限")
-        out.append(data)
+        pending = chunk
+        while pending:
+            if deadline is not None and time.monotonic() > deadline:
+                raise FetchError("解压超时（任务截止时间已到）", retryable=False)
+            # 多取 1 字节探测超限；max_length=0 表示无限制，必须保证 ≥ 1
+            budget = MAX_DECOMPRESSED_BYTES - total + 1
+            data = decompressor.decompress(pending, budget)
+            total += len(data)
+            if total > MAX_DECOMPRESSED_BYTES:
+                raise FetchRejected("解压后体积超过 1 MiB 上限")
+            if data:
+                out.append(data)
+            if decompressor.eof:
+                break
+            pending = decompressor.unconsumed_tail
+    if not decompressor.eof:
+        raise FetchError("gzip 流被截断（未到流结束）")
+    if decompressor.unused_data:
+        raise FetchRejected("gzip 流结束后仍有尾随数据，已拒绝")
     return b"".join(out)
 
 
 def _single_request(scheme, host, port, path, ip, headers,
-                    allowed_content_types):
+                    allowed_content_types, deadline):
     """发起到已校验目标的一次请求，处理响应头与编码。"""
-    deadline_read = time.monotonic() + REQUEST_TOTAL_TIMEOUT
-    conn = _open_connection(scheme, host, port, ip)
+    deadline_read = min(time.monotonic() + REQUEST_TOTAL_TIMEOUT, deadline)
+    conn = _open_connection(scheme, host, port, ip, deadline_read)
     try:
         conn.request("GET", path, headers=headers)
         resp = conn.getresponse()
@@ -274,7 +306,7 @@ def _single_request(scheme, host, port, path, ip, headers,
     if encoding in ("", "identity"):
         body = b"".join(chunks)
     elif encoding == "gzip":
-        body = _gunzip_capped(chunks)
+        body = _gunzip_capped(chunks, deadline_read)
     else:
         raise FetchRejected("不支持的传输编码（{}），已拒绝".format(encoding))
 
@@ -293,38 +325,203 @@ class _TooManyRequests(FetchError):
 
 
 def _parse_retry_after(value):
+    """解析 Retry-After：不缩短服务端要求的等待（仅按 24h 封顶防溢出值）。"""
     if not value:
         return None
     try:
-        return max(0.0, min(RETRY_AFTER_CAP, float(value)))
+        seconds = float(value)
     except ValueError:
         return None
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    return min(seconds, RETRY_AFTER_SANITY_MAX)
 
 
 # ------------------------------------------------------------- 获取入口
 
-def _wait_source_interval(source_id, deadline):
-    """同来源请求起始间隔限流：必要时等待（不超过截止时间）。"""
-    with _interval_lock:
-        next_allowed = _next_allowed_at.get(source_id, 0.0)
-        wait = next_allowed - time.monotonic()
-        if wait > 0:
+_interval_lock = threading.Lock()
+_next_allowed_at = {}  # source_id -> time.monotonic()（进程内实现的状态）
+
+
+class IntervalGate:
+    """同来源请求间隔门。
+
+    reserve：每次请求前等待到允许时刻并登记下一次；
+    postpone：来源要求延后（如 429 Retry-After）时推迟允许时刻。
+    """
+
+    def reserve(self, source_id, deadline):
+        raise NotImplementedError
+
+    def postpone(self, source_id, seconds):
+        raise NotImplementedError
+
+    def next_wait_seconds(self, source_id):
+        raise NotImplementedError
+
+
+class InProcessIntervalGate(IntervalGate):
+    """进程内实现（fetch_source 的默认门）：单进程部署与直接调用使用。
+
+    多进程部署下各 worker 不共享此状态；正式采集经子进程执行时
+    传入 SqliteIntervalGate，跨进程生效。
+    """
+
+    def reserve(self, source_id, deadline):
+        with _interval_lock:
+            next_allowed = _next_allowed_at.get(source_id, 0.0)
+            wait = next_allowed - time.monotonic()
+            if wait > 0:
+                if time.monotonic() + wait > deadline:
+                    raise FetchRejected(
+                        "同来源请求间隔不足，且等待会超过任务截止时间")
+                time.sleep(wait)
+            _next_allowed_at[source_id] = time.monotonic() + MIN_INTERVAL_SECONDS
+
+    def postpone(self, source_id, seconds):
+        with _interval_lock:
+            now = time.monotonic()
+            next_allowed = max(_next_allowed_at.get(source_id, now),
+                               now + max(0.0, float(seconds)))
+            _next_allowed_at[source_id] = next_allowed
+
+    def next_wait_seconds(self, source_id):
+        with _interval_lock:
+            return max(0.0, _next_allowed_at.get(source_id, time.monotonic())
+                       - time.monotonic())
+
+
+_default_gate_instance = InProcessIntervalGate()
+
+
+class SqliteIntervalGate(IntervalGate):
+    """跨进程实现：同来源间隔与全局请求预算持久化在独立 SQLite 状态库。
+
+    状态库与业务库分离（位于专门的 collect_state 目录），采集子进程
+    因此不需要业务数据库的任何访问权。时间基准为 time.time()（跨进程
+    可比；秒级间隔下 NTP 微调的影响可忽略）。
+    """
+
+    def __init__(self, state_dir, min_interval=None,
+                 global_max=GLOBAL_MAX_REQUESTS,
+                 global_window=GLOBAL_WINDOW_SECONDS):
+        state_dir = Path(state_dir)
+        state_dir.mkdir(parents=True, exist_ok=True)
+        self.min_interval = (MIN_INTERVAL_SECONDS if min_interval is None
+                             else max(0.0, float(min_interval)))
+        self.global_max = int(global_max)
+        self.global_window = float(global_window)
+        self._conn = sqlite3.connect(str(state_dir / "gate.db"), timeout=15)
+        self._conn.row_factory = sqlite3.Row
+        self._conn.isolation_level = None  # 手动事务
+        self._conn.execute("PRAGMA busy_timeout=15000")
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS source_interval ("
+                "source_id TEXT PRIMARY KEY, next_allowed REAL NOT NULL)")
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS global_window ("
+                "id INTEGER PRIMARY KEY CHECK (id = 1), "
+                "start REAL NOT NULL, count INTEGER NOT NULL)")
+            self._conn.execute("COMMIT")
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+
+    def close(self):
+        self._conn.close()
+
+    def _check_and_bump_global(self, now):
+        row = self._conn.execute(
+            "SELECT start, count FROM global_window WHERE id = 1").fetchone()
+        if row is None or now - row["start"] >= self.global_window:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO global_window (id, start, count) "
+                "VALUES (1, ?, 1)", (now,))
+            return
+        if row["count"] >= self.global_max:
+            raise FetchRejected(
+                "全局采集请求预算已用完（{} 秒内 {} 次上限），请稍后再试".format(
+                    int(self.global_window), self.global_max))
+        self._conn.execute(
+            "UPDATE global_window SET count = count + 1 WHERE id = 1")
+
+    def reserve(self, source_id, deadline):
+        while True:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                now = time.time()
+                row = self._conn.execute(
+                    "SELECT next_allowed FROM source_interval WHERE source_id = ?",
+                    (source_id,)).fetchone()
+                wait = max(0.0, row["next_allowed"] - now) if row else 0.0
+                if wait <= 0:
+                    self._check_and_bump_global(now)
+                    self._conn.execute(
+                        "INSERT OR REPLACE INTO source_interval "
+                        "(source_id, next_allowed) VALUES (?, ?)",
+                        (source_id, now + self.min_interval))
+                    self._conn.execute("COMMIT")
+                    return
+                self._conn.execute("ROLLBACK")
+            except BaseException:
+                try:
+                    self._conn.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
+                raise
+            # 需要等待：在截止时间内分段睡眠，醒来后重读（其他进程可能再推迟）
             if time.monotonic() + wait > deadline:
-                raise FetchRejected("同来源请求间隔不足，且等待会超过任务截止时间")
-            time.sleep(wait)
-        _next_allowed_at[source_id] = time.monotonic() + MIN_INTERVAL_SECONDS
+                raise FetchRejected(
+                    "同来源请求间隔不足，且等待会超过任务截止时间")
+            time.sleep(min(wait, 1.0) + 0.01)
+
+    def postpone(self, source_id, seconds):
+        seconds = max(0.0, float(seconds))
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            now = time.time()
+            row = self._conn.execute(
+                "SELECT next_allowed FROM source_interval WHERE source_id = ?",
+                (source_id,)).fetchone()
+            next_allowed = max(row["next_allowed"] if row else now, now + seconds)
+            self._conn.execute(
+                "INSERT OR REPLACE INTO source_interval "
+                "(source_id, next_allowed) VALUES (?, ?)",
+                (source_id, next_allowed))
+            self._conn.execute("COMMIT")
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+
+    def next_wait_seconds(self, source_id):
+        row = self._conn.execute(
+            "SELECT next_allowed FROM source_interval WHERE source_id = ?",
+            (source_id,)).fetchone()
+        if row is None:
+            return 0.0
+        return max(0.0, row["next_allowed"] - time.time())
 
 
-def fetch_source(source, budget=None, deadline=None, conditional_headers=None):
+def _wait_source_interval(source_id, deadline):
+    """兼容入口：经默认进程内门执行间隔等待。"""
+    _default_gate_instance.reserve(source_id, deadline)
+
+
+def fetch_source(source, budget=None, deadline=None, conditional_headers=None,
+                 gate=None):
     """按来源配置执行受限获取，返回 FetchResult。
 
     source：collect_sources.SOURCES 的条目（含 url、https_only、
-    allow_private、max_items 等字段）。
+      allow_private、max_items 等字段）。
     budget / deadline 为空时使用默认任务预算与截止时间。
     conditional_headers：可选的 {If-None-Match, If-Modified-Since}。
+    gate：同来源间隔门；默认进程内实现，跨进程部署传 SqliteIntervalGate。
     """
     budget = budget or FetchBudget()
     deadline = deadline or (time.monotonic() + TASK_TIMEOUT)
+    gate = gate if gate is not None else _default_gate_instance
     https_only = source.get("https_only", True)
     allow_private = source.get("allow_private", False)
     scheme, host, port, path = parse_source_url(source["url"], https_only)
@@ -347,20 +544,28 @@ def fetch_source(source, budget=None, deadline=None, conditional_headers=None):
     while True:
         if time.monotonic() > deadline:
             raise FetchError("任务截止时间已到")
-        _wait_source_interval(source["id"], deadline)
+        gate.reserve(source["id"], deadline)
         budget.consume()
         try:
+            # DNS 解析无法从外部中断，只在前后检查截止；解析耗时计入任务预算
             ip = validate_host_addresses(host, port, allow_private)
+            if time.monotonic() > deadline:
+                raise FetchError("任务截止时间已到（DNS 解析耗时超出预算）")
             result = _single_request(scheme, host, port, path, ip, headers,
-                                     allowed_types)
+                                     allowed_types, deadline)
         except _TooManyRequests as exc:
-            retry_after = exc.retry_after if exc.retry_after is not None else RETRY_AFTER_CAP
-            if (attempts >= 1 or time.monotonic() + retry_after > deadline):
-                raise FetchError("来源限流（429），建议 {} 秒后再试".format(
-                    int(retry_after) + 1)) from exc
+            # 服务端要求的等待不被缩短：先推迟该来源的允许时刻
+            # （跨进程可见），再决定本任务是否等得起。
+            server_wait = (exc.retry_after if exc.retry_after is not None
+                           else RETRY_AFTER_DEFAULT)
+            gate.postpone(source["id"], server_wait)
+            if attempts >= 1 or time.monotonic() + server_wait > deadline:
+                raise FetchError(
+                    "来源限流（429），服务端要求 {:.0f} 秒后再试".format(
+                        server_wait)) from exc
             logger.info("来源 %s 返回 429，按 Retry-After 等待 %.0fs",
-                        source["id"], retry_after)
-            time.sleep(retry_after)
+                        source["id"], server_wait)
+            time.sleep(server_wait)
             attempts += 1
             continue
         except FetchRejected:
@@ -372,7 +577,8 @@ def fetch_source(source, budget=None, deadline=None, conditional_headers=None):
             if attempts >= 1 or not retryable:
                 if isinstance(exc, FetchError):
                     raise
-                raise FetchError("网络错误：{}".format(type(exc).__name__)) from exc
+                raise FetchError("网络错误：{}：{}".format(
+                    type(exc).__name__, str(exc)[:200])) from exc
             attempts += 1
             wait = min(RETRY_BACKOFF_SECONDS, max(0.0, deadline - time.monotonic()))
             if wait <= 0:
@@ -382,8 +588,20 @@ def fetch_source(source, budget=None, deadline=None, conditional_headers=None):
         return result
 
 
-def next_allowed_time(source_id):
-    """该来源下一次可发起请求的时间（time.monotonic 基准）；无记录返回当前时间。"""
-    with _interval_lock:
-        return _next_allowed_at.get(source_id, time.monotonic())
+def next_wait_seconds(source_id, state_dir=None):
+    """该来源距下次可请求的等待秒数。
+
+    state_dir 提供时读跨进程状态库（正式采集的间隔状态在子进程中维护），
+    否则退回进程内状态（直接调用 fetch_source 的场景）。
+    """
+    if state_dir is not None:
+        gate_db = Path(state_dir) / "gate.db"
+        if gate_db.exists():
+            gate = SqliteIntervalGate(state_dir)
+            try:
+                return gate.next_wait_seconds(source_id)
+            finally:
+                gate.close()
+        return 0.0
+    return _default_gate_instance.next_wait_seconds(source_id)
 

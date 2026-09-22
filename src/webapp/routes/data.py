@@ -83,10 +83,10 @@ def message_detail(message_id):
         return render_template("message_detail.html", message=None), 404
 
     runs = detection.runs_for_message(message_id)
-    for run in runs:
-        run["stale"] = detection.is_stale(run, message["content"])
-    history = reviews.reviews_for_message(message_id)
     comments = newsdata.list_comments(message_id)
+    for run in runs:
+        run["stale"] = detection.is_stale(run, message["content"], comments)
+    history = reviews.reviews_for_message(message_id)
 
     return render_template(
         "message_detail.html",

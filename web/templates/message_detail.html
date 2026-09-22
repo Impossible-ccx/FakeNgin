@@ -28,7 +28,7 @@
             {% set valid_runs = runs | selectattr('status', 'equalto', 'succeeded') | list %}
             {% if valid_runs and valid_runs[0].probability is not none %}
                 {{ valid_runs[0].probability }}%
-                {% if valid_runs[0].stale %}（正文已修改·结果过期）{% endif %}
+                {% if valid_runs[0].stale %}（输入已修改·结果过期）{% endif %}
             {% else %}未检测{% endif %}
         </span>
         {% if message.legacy_probability %}
@@ -56,12 +56,13 @@
     {% if runs %}
     <div class="table-wrap">
         <table class="msg-table">
-            <thead><tr><th>时间</th><th>模型</th><th>状态</th><th>风险评分</th><th>理由 / 错误</th><th>耗时</th></tr></thead>
+            <thead><tr><th>时间</th><th>模型</th><th>输入</th><th>状态</th><th>风险评分</th><th>理由 / 错误</th><th>耗时</th></tr></thead>
             <tbody>
             {% for run in runs %}
                 <tr>
                     <td class="cell-time">{{ run.finished_at or run.started_at or run.created_at }}</td>
-                    <td>{{ run.model_name or run.model_id or '—' }}</td>
+                    <td>{{ run.model_name or run.model_id or '—' }}{% if run.model_version %}<span class="muted" title="模型工件版本标识">（{{ run.model_version }}）</span>{% endif %}</td>
+                    <td>{{ '正文＋评论序列' if run.input_kind == 'sequence' else '仅正文' }}</td>
                     <td>{{ run_label.get(run.status, run.status) }}</td>
                     <td>{% if run.probability is not none %}{{ run.probability }}{% if run.stale %} <span class="nature nature-unknown">过期</span>{% endif %}{% else %}—{% endif %}</td>
                     <td class="cell-content"><div class="clamp">{{ run.reason or run.error or '—' }}</div></td>

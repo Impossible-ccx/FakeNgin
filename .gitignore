@@ -21,6 +21,9 @@ htmlcov/
 
 database/
 database_backup_*/
+
+# 本地实验归档（含从原始数据提取的词表工件，不纳入版本控制）
+artifacts/
 fakengin.db_backup_*/
 
 # Local development instructions, plans, and code indexes
@@ -29,3 +32,6 @@ docs/
 .zcodeignore
 AGENTS.md
 /虚假信息平台+学习内容推荐系统.pdf
+
+# 课程交付材料（演示脚本、分工、PPT 大纲等，不入版本控制）
+deliverables/

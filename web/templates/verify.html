@@ -55,7 +55,7 @@
                         {% if r.latest_run %}
                             {% if r.latest_run.status == 'succeeded' and r.latest_run.probability is not none %}
                                 <strong>{{ r.latest_run.probability }}%</strong>
-                                {% if r.run_stale %}<span class="nature nature-unknown">正文已修改·结果过期</span>{% endif %}
+                                {% if r.run_stale %}<span class="nature nature-unknown">输入已修改·结果过期</span>{% endif %}
                             {% else %}
                                 <span class="nature nature-{{ run_class.get(r.latest_run.status, 'unknown') }}">{{ run_label.get(r.latest_run.status, r.latest_run.status) }}</span>
                                 {% if r.latest_run.error %}<span class="muted" title="{{ r.latest_run.error }}">!</span>{% endif %}
@@ -82,7 +82,7 @@
                         {% if r.latest_run and r.latest_run.status == 'succeeded' %}
                         <p class="review-run-meta">
                             最近检测：{{ r.latest_run.probability }}%（{{ r.latest_run.model_name or r.latest_run.model_id }}，
-                            {{ r.latest_run.finished_at }}）{% if r.run_stale %}——正文已修改，此结果仅供参考{% endif %}
+                            {{ r.latest_run.finished_at }}）{% if r.run_stale %}——输入已修改（正文或评论），此结果仅供参考{% endif %}
                             {% if r.latest_run.reason %}<br>模型理由：{{ r.latest_run.reason }}{% endif %}
                         </p>
                         {% endif %}
@@ -191,7 +191,7 @@
         <div class="check-meta">
             <span>来源：{{ check_row.source or '—' }}</span>
             <span>发出时间：{{ check_row.publish_time or '—' }}</span>
-            <span>模型风险评分：{% if check_row.latest_run and check_row.latest_run.status == 'succeeded' and check_row.latest_run.probability is not none %}{{ check_row.latest_run.probability }}%{% if check_row.run_stale %}（正文已修改·过期）{% endif %}{% else %}未检测{% endif %}</span>
+            <span>模型风险评分：{% if check_row.latest_run and check_row.latest_run.status == 'succeeded' and check_row.latest_run.probability is not none %}{{ check_row.latest_run.probability }}%{% if check_row.run_stale %}（输入已修改·过期）{% endif %}{% else %}未检测{% endif %}</span>
         </div>
         {% if check_row.latest_run and check_row.latest_run.reason %}
         <p class="review-run-meta">模型理由：{{ check_row.latest_run.reason }}</p>

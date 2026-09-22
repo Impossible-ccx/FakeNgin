@@ -1,4 +1,4 @@
-"""训练本地序列模型（TF-IDF + 评论时间序列 + RNN）并写入工件。
+"""训练本地模型（TF-IDF + 评论时间序列 + RNN）并写入工件。
 
 数据来源：库内人工校验结论为"虚假/真实"的消息及其评论回复树
 （对应 PDF 模型处理流程：TF-IDF 特征提取 → 评论按时间排序 →
@@ -9,15 +9,22 @@
         [--epochs 200] [--hidden 24] [--holdout 0.2]
         [--seed 20260921] [--max-features 5000]
         [--split-file <weibo16_split.json>]
+        [--input sequence|content]
+
+--input sequence：正文 + 评论时间序列（PDF 完整路线，默认）；
+--input content：仅正文（消融实验口径，推理时同样忽略评论）。
 
 如实说明：
 - 默认按类别分层留出 20% 仅用于报告，超参数取固定缺省值、不在留出集上调参；
 - 指定 --split-file 时（如 Weibo16 近重复分组划分），训练只用训练折，
-  测试折指标仅作最终报告，不参与训练与调参；
+  测试折指标仅作最终报告，不参与训练与调参；词表与 IDF 只在训练侧拟合；
+- 划分文件经过严格校验：结构、ID 交集/重复/未知、类别分布与数据集指纹，
+  版本 1 的旧文件无指纹字段时跳过身份校验并明确提示；
 - 指标只反映训练所用的本地数据集，训练数据为演示/合成样例时不代表
   真实场景效果。
 """
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -31,12 +38,18 @@ from webapp import newsdata  # noqa: E402
 LABEL_NATURES = ("虚假", "真实")
 MIN_TOTAL_SAMPLES = 8
 MIN_CLASS_SAMPLES = 2
+SUPPORTED_SPLIT_VERSIONS = (1, 2)
 
 USAGE = (
     "用法：python scripts/train_tfidf_rnn.py [--data-note 数据来源说明] "
     "[--epochs 200] [--hidden 24] [--holdout 0.2] [--seed 20260921] "
-    "[--max-features 5000] [--split-file <划分文件>]"
+    "[--max-features 5000] [--split-file <划分文件>] "
+    "[--input sequence|content]"
 )
+
+
+class SplitFileError(ValueError):
+    """划分文件不合规（结构、ID、类别或身份校验失败）。"""
 
 
 def _parse_args(argv):
@@ -48,12 +61,13 @@ def _parse_args(argv):
         "seed": tfidf_rnn.DEFAULT_SEED,
         "max_features": tfidf_rnn.DEFAULT_MAX_FEATURES,
         "split_file": "",
+        "input": "sequence",
     }
     i = 0
     while i < len(argv):
         arg = argv[i]
         if arg in ("--data-note", "--epochs", "--hidden", "--holdout",
-                   "--seed", "--max-features", "--split-file"):
+                   "--seed", "--max-features", "--split-file", "--input"):
             if i + 1 >= len(argv):
                 raise ValueError("{} 需要一个参数值".format(arg))
             value = argv[i + 1]
@@ -71,6 +85,10 @@ def _parse_args(argv):
                 options["max_features"] = max(10, int(value))
             elif arg == "--split-file":
                 options["split_file"] = value
+            elif arg == "--input":
+                if value not in ("sequence", "content"):
+                    raise ValueError("--input 只支持 sequence 或 content")
+                options["input"] = value
             i += 2
         else:
             raise ValueError("无法识别的参数：{}".format(arg))
@@ -87,8 +105,126 @@ def _load_labeled_rows():
     return rows
 
 
-def _to_samples(pairs):
+def _to_samples(pairs, input_mode):
+    if input_mode == "content":
+        return [([row["content"]], 1 if row["nature"] == "虚假" else 0)
+                for row, _texts in pairs]
     return [(texts, 1 if row["nature"] == "虚假" else 0) for row, texts in pairs]
+
+
+def _check_id_list(value, name):
+    """一侧 ID 列表的结构校验：int（非 bool）、无重复、非空。"""
+    if not isinstance(value, list) or not value:
+        raise SplitFileError("划分文件的 {} 侧必须是非空列表".format(name))
+    seen = set()
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, int):
+            raise SplitFileError(
+                "{} 侧存在非整数 ID：{!r}".format(name, item))
+        if item in seen:
+            raise SplitFileError("{} 侧存在重复 ID：{}".format(name, item))
+        seen.add(item)
+    return value
+
+
+def _load_split_file(path):
+    """读取划分文件并做结构校验；身份与覆盖校验见 _validate_split。"""
+    try:
+        raw = Path(path).read_bytes()
+        split = json.loads(raw)
+    except OSError as exc:
+        raise SplitFileError("划分文件无法读取：{}".format(exc))
+    except ValueError as exc:
+        raise SplitFileError("划分文件不是有效 JSON：{}".format(exc))
+    if not isinstance(split, dict) or split.get("format") != "fakengin-split":
+        raise SplitFileError("划分文件格式不正确（需要 fakengin-split）")
+    version = split.get("version")
+    if version not in SUPPORTED_SPLIT_VERSIONS:
+        raise SplitFileError(
+            "划分文件版本不支持：{}（支持：{}）".format(
+                version, "、".join(map(str, SUPPORTED_SPLIT_VERSIONS))))
+    train_ids = _check_id_list(split.get("train"), "train")
+    test_ids = _check_id_list(split.get("test"), "test")
+    intersection = set(train_ids) & set(test_ids)
+    if intersection:
+        raise SplitFileError(
+            "train 与 test 存在 {} 个交集 ID（例如 {}），拒绝训练".format(
+                len(intersection), sorted(intersection)[:5]))
+    split_sha256 = hashlib.sha256(raw).hexdigest()
+    return split, train_ids, test_ids, split_sha256
+
+
+def _validate_split(split, train_ids, test_ids, labeled_rows, input_label):
+    """身份与分布校验：未知 ID、数据集指纹、类别分布与覆盖报告。
+
+    返回 (train_pairs, test_pairs, report_lines, split_info)。
+    覆盖策略：库内带结论但不在划分内的消息从本次训练与测试中排除，
+    并明确报告数量——不静默丢弃后宣称完整复现。
+    """
+    labeled = {row["id"]: (row, texts) for row, texts in labeled_rows}
+    unknown = [mid for mid in train_ids + test_ids if mid not in labeled]
+    if unknown:
+        raise SplitFileError(
+            "划分文件包含 {} 个当前库中不存在的消息 ID（例如 {}）。"
+            "自增 ID 相同不代表同一数据集，请核对划分文件与数据目录".format(
+                len(unknown), unknown[:5]))
+
+    meta = split.get("meta") if isinstance(split.get("meta"), dict) else {}
+    report = []
+    covered = set(train_ids) | set(test_ids)
+    uncovered = sorted(set(labeled) - covered)
+    if uncovered:
+        report.append(
+            "覆盖说明：库内 {} 条带结论消息不在划分文件覆盖范围内，"
+            "本次训练与测试均不包含（划分共覆盖 {} 条）".format(
+                len(uncovered), len(covered)))
+
+    # 数据集指纹（版本 2 起）：错库或内容被改动时拒绝
+    fingerprint = newsdata.dataset_fingerprint(
+        [{"id": mid, "label": 1 if labeled[mid][0]["nature"] == "虚假" else 0,
+          "content": labeled[mid][0]["content"]} for mid in covered])
+    if split.get("version") >= 2:
+        expected = meta.get("dataset_fingerprint")
+        if not expected:
+            report.append("注意：划分文件为版本 2 但缺少数据集指纹，跳过身份校验")
+        elif expected != fingerprint:
+            raise SplitFileError(
+                "数据集指纹不匹配：划分文件记录 {}，当前库计算 {}。"
+                "消息内容或标注与生成划分时不一致，拒绝训练".format(
+                    expected[:16], fingerprint[:16]))
+    else:
+        report.append(
+            "注意：划分文件为版本 1（无数据集指纹），已跳过身份校验；"
+            "建议用新版导入脚本重新生成划分文件")
+
+    train_pairs = [labeled[mid] for mid in train_ids]
+    test_pairs = [labeled[mid] for mid in test_ids]
+    for side_name, pairs in (("训练", train_pairs), ("测试", test_pairs)):
+        labels = {row["nature"] for row, _ in pairs}
+        missing = [n for n in LABEL_NATURES if n not in labels]
+        if missing:
+            raise SplitFileError(
+                "{}侧缺少类别 {}，无法完成二分类训练/评测".format(
+                    side_name, "、".join(missing)))
+
+    label_counts = {
+        "train": {"虚假": sum(1 for r, _ in train_pairs if r["nature"] == "虚假"),
+                  "真实": sum(1 for r, _ in train_pairs if r["nature"] == "真实")},
+        "test": {"虚假": sum(1 for r, _ in test_pairs if r["nature"] == "虚假"),
+                 "真实": sum(1 for r, _ in test_pairs if r["nature"] == "真实")},
+    }
+    split_info = {
+        "file": str(split.get("_path", "")),
+        "sha256": split.get("_sha256", ""),
+        "version": split.get("version"),
+        "dataset_fingerprint": fingerprint,
+        "train_count": len(train_ids),
+        "test_count": len(test_ids),
+        "label_counts": label_counts,
+        "uncovered_labeled_rows": len(uncovered),
+        "input_mode": input_label,
+    }
+    return train_pairs, test_pairs, report, split_info
 
 
 def _print_metrics(name, metrics):
@@ -112,30 +248,28 @@ def main():
         return 1
 
     pairs = _load_labeled_rows()
-    samples = _to_samples(pairs)
+    samples = _to_samples(pairs, options["input"])
     test_samples = None
+    split_info = None
 
     if options["split_file"]:
         try:
-            with open(options["split_file"], "r", encoding="utf-8") as fh:
-                split = json.load(fh)
-            train_ids = set(split.get("train") or [])
-            test_ids = set(split.get("test") or [])
-        except (OSError, ValueError) as exc:
-            print("划分文件无法读取：{}".format(exc))
+            split, train_ids, test_ids, split_sha256 = \
+                _load_split_file(options["split_file"])
+            split["_path"] = str(options["split_file"])
+            split["_sha256"] = split_sha256
+            train_pairs, test_pairs, report, split_info = _validate_split(
+                split, train_ids, test_ids, pairs, options["input"])
+        except SplitFileError as exc:
+            print("划分文件校验失败：{}".format(exc))
             return 1
-        covered = train_ids | test_ids
-        kept = [(row, texts) for row, texts in pairs if row["id"] in covered]
-        if len(kept) != len(pairs):
-            print("注意：{} 条带结论消息不在划分文件覆盖范围内，已从本次训练排除".format(
-                len(pairs) - len(kept)))
-        samples = _to_samples([(row, texts) for row, texts in kept
-                               if row["id"] in train_ids])
-        test_samples = _to_samples([(row, texts) for row, texts in kept
-                                    if row["id"] in test_ids])
+        for line in report:
+            print(line)
+        samples = _to_samples(train_pairs, options["input"])
+        test_samples = _to_samples(test_pairs, options["input"])
         if not options["data_note"]:
-            meta = split.get("meta") or {}
-            options["data_note"] = str(meta.get("source") or "划分文件未注明来源")
+            options["data_note"] = str(
+                (split.get("meta") or {}).get("source") or "划分文件未注明来源")
         print("外部划分：训练 {} 条 / 测试 {} 条（测试折不参与训练与调参）".format(
             len(samples), len(test_samples)))
 
@@ -152,6 +286,9 @@ def main():
         return 1
 
     holdout_fraction = 0.0 if test_samples is not None else options["holdout"]
+    mode_label = ("正文＋评论序列（PDF 完整路线）" if options["input"] == "sequence"
+                  else "仅正文（消融口径）")
+    print("输入模式：{}".format(mode_label))
     print("开始训练：样本 {} 条（谣言 {} / 真实 {}），epochs={}，隐藏层 {}，"
           "留出比例 {}".format(
               len(samples), positives, negatives, options["epochs"],
@@ -174,11 +311,15 @@ def main():
             max_features=options["max_features"],
             data_note=options["data_note"],
             test_samples=test_samples,
+            input_mode=options["input"],
             progress=_progress,
         )
     except ValueError as exc:
         print("训练失败：{}".format(exc))
         return 1
+
+    if split_info is not None:
+        artifact["stats"]["split"] = split_info
 
     stats = artifact["stats"]
     print("训练完成：训练折 {} 条，最终训练损失 {:.4f}".format(

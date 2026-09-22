@@ -15,6 +15,14 @@ class CheckModel:
     display_name = ""
     description = ""
 
+    # 是否使用评论序列作为输入（PDF 序列路线）。检测层据此决定输入
+    # 指纹口径：仅正文的模型不因评论变化而被判过期。
+    uses_comments = False
+
+    # 模型身份版本（如工件内容哈希）。空串表示模型未提供版本标识；
+    # 工件格式版本不等于训练版本，重新训练后应产生不同标识。
+    model_version = ""
+
     def initialize(self):
         """加载时初始化，默认无需处理。"""
         pass
@@ -43,3 +51,19 @@ class CheckModel:
         失败时抛出 CheckError。
         """
         return self.check(source_text)
+
+
+def build_sequence(source_text, comments, max_length=32):
+    """规范评论序列：[源正文] + 评论按 (publish_time, id) 升序，截断。
+
+    这是全平台唯一的序列构建规则：模型实现（如 TF-IDF+RNN）与检测层
+    的输入指纹都使用它——指纹与推理输入必须来自同一规则，评论的
+    增删改或时间调整才能可靠地使旧检测记录失效。
+    """
+    ordered = sorted(
+        comments or [],
+        key=lambda c: (str(c.get("publish_time") or ""), int(c.get("id") or 0)),
+    )
+    texts = [str(source_text or "")]
+    texts.extend(str(c.get("content") or "") for c in ordered)
+    return texts[: max(1, int(max_length))]

@@ -1,24 +1,30 @@
-"""在线采集编排：受限获取 → 解析校验 → 幂等去重 → 受控导入，全程留痕。
+"""在线采集编排：受限子进程获取解析 → schema 校验 → 幂等去重 → 受控导入。
 
 流程（run_collection，一次性任务，无定时调度）：
-1. 只接受 allowlist 中的来源 ID；
-2. collect_fetch 按边界执行请求（限流、预算、截止时间、体积上限）；
-3. collect_parse 解析并规范化条目，非法内容跳过并记录原因；
-4. collected_items 以（来源 ID + 外部 ID）幂等去重，消息正文再做一次
+1. 只接受 allowlist 中的来源 ID；同来源以文件锁互斥（跨进程生效），
+   已有任务进行中时本次直接失败并留痕；
+2. 获取与解析在受资源限制的独立子进程执行（collect_isolated）：
+   子进程不持有模型密钥与业务库访问权，输出经 schema 校验后才被采用；
+   同来源请求间隔与全局请求预算由子进程经独立状态库跨进程维护；
+3. collected_items 以（来源 ID + 外部 ID）幂等去重，消息正文再做一次
    内容级去重；整批导入在一个事务内完成；
-5. 有效消息以“未校验”进入现有消息流程；是否加入检测队列由调用方
+4. 有效消息以“未校验”进入现有消息流程；是否加入检测队列由调用方
    显式选择（默认不触发大量模型请求）；
-6. collection_runs 记录状态、请求与条目计数、错误摘要，失败不产生
+5. collection_runs 记录状态、请求与条目计数、错误摘要，失败不产生
    假消息、不破坏已有数据。
 
 ETag / Last-Modified 条件请求：304 时不重复解析与入库。
 """
 
+import fcntl
 import logging
+import os
+import re
 import sqlite3
 import time
+from contextlib import contextmanager
 
-from . import collect_fetch, collect_parse, collect_sources, db, detection, newsdata
+from . import collect_fetch, collect_isolated, collect_sources, db, detection, newsdata
 
 logger = logging.getLogger("fakengin.collect")
 
@@ -29,54 +35,100 @@ RUN_FIELDS = [
 ]
 
 
-def run_collection(source_id, enqueue_detection=False):
-    """执行一次采集。返回本次 collection_runs 记录 dict。
+class SourceBusyError(Exception):
+    """该来源已有采集任务正在进行（文件锁被占用）。"""
 
-    enqueue_detection=True 时，新导入的消息加入检测队列（显式选择，
-    默认关闭——避免一次采集触发大量模型请求）。
+
+def state_dir():
+    """跨进程采集状态目录（间隔状态、来源锁），与业务库文件分离。"""
+    return db.DATABASE_DIR / "collect_state"
+
+
+@contextmanager
+def _source_run_lock(source_id):
+    """同来源互斥：非阻塞文件锁，进程退出（含崩溃）自动释放。"""
+    directory = state_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", source_id) or "unknown"
+    fd = os.open(str(directory / "lock_{}.lock".format(safe_id)),
+                 os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise SourceBusyError("该来源已有采集任务正在进行，请稍后再试")
+        yield
+    finally:
+        os.close(fd)
+
+
+def run_collection(source_id, enqueue_detection=False):
+    """执行一次采集（获取与解析在受限子进程中完成）。
+
+    返回本次 collection_runs 记录 dict。enqueue_detection=True 时，
+    新导入的消息加入检测队列（显式选择，默认关闭——避免一次采集
+    触发大量模型请求）。
     """
     source = collect_sources.get_source(source_id)
     run_id = _start_run(source_id)
-    budget = collect_fetch.FetchBudget()
-    deadline = time.monotonic() + collect_fetch.TASK_TIMEOUT
     try:
-        result = collect_fetch.fetch_source(
-            source, budget=budget, deadline=deadline,
-            conditional_headers=_conditional_headers(source_id))
-
-        if result.not_modified:
-            _finish_run(run_id, requests=budget.used, not_modified=1)
-            return get_run(run_id)
-
-        items, rejections = collect_parse.parse_items(source, result.body)
-        counts, message_ids = _import_items(source, items)
-        _store_conditional_headers(source_id, result)
-
-        if enqueue_detection and message_ids:
-            detection.enqueue(message_ids)
-
-        _finish_run(
-            run_id, requests=budget.used,
-            items_fetched=len(items),
-            items_new=counts["new"],
-            items_duplicate=counts["duplicate"],
-            items_rejected=len(rejections),
-            messages_imported=counts["imported"],
-        )
-        if rejections:
-            logger.info("采集 %s 拒绝 %d 条：%s", source_id, len(rejections),
-                        "; ".join(rejections[:3]))
-    except collect_fetch.FetchError as exc:
-        # 失败：记录可定位的错误摘要，不伪造成功、不产生假消息
-        _finish_run(run_id, requests=budget.used, status="failed",
-                    error=str(exc)[:500])
-    except collect_parse.ParseRejected as exc:
-        _finish_run(run_id, requests=budget.used, status="failed",
-                    error="内容解析被拒绝：{}".format(str(exc))[:500])
+        with _source_run_lock(source_id):
+            result = collect_isolated.run_isolated_collection(
+                source,
+                conditional_headers=_conditional_headers(source_id),
+                state_dir=state_dir(),
+                min_interval=collect_fetch.MIN_INTERVAL_SECONDS,
+                request_timeout=collect_fetch.REQUEST_TOTAL_TIMEOUT,
+                task_timeout=collect_fetch.TASK_TIMEOUT,
+                retry_backoff=collect_fetch.RETRY_BACKOFF_SECONDS,
+            )
+    except SourceBusyError as exc:
+        _finish_run(run_id, status="failed", error=str(exc)[:500])
+        return get_run(run_id)
+    except collect_isolated.CollectionError as exc:
+        _finish_run(run_id, status="failed", error=str(exc)[:500])
+        return get_run(run_id)
     except Exception as exc:  # 兜底：任何异常都不让任务停留在 running
         logger.warning("采集任务 %s 异常：%s", source_id, type(exc).__name__)
-        _finish_run(run_id, requests=budget.used, status="failed",
+        _finish_run(run_id, status="failed",
                     error="{}：{}".format(type(exc).__name__, str(exc))[:400])
+        return get_run(run_id)
+
+    if result["status"] != "succeeded":
+        # 子进程内部失败（网络、解析、限额等）：错误摘要原样留痕
+        _finish_run(run_id, requests=result["requests"], status="failed",
+                    error=result["error"][:500])
+        return get_run(run_id)
+
+    if result["not_modified"]:
+        _finish_run(run_id, requests=result["requests"], not_modified=1)
+        return get_run(run_id)
+
+    try:
+        items, rejections = result["items"], result["rejections"]
+        counts, message_ids = _import_items(source, items)
+        _store_conditional_headers(source_id, result)
+    except Exception as exc:
+        logger.warning("采集任务 %s 入库异常：%s", source_id, type(exc).__name__)
+        _finish_run(run_id, requests=result["requests"], status="failed",
+                    error="入库失败（{}：{}），本次结果已丢弃".format(
+                        type(exc).__name__, str(exc))[:400])
+        return get_run(run_id)
+
+    if enqueue_detection and message_ids:
+        detection.enqueue(message_ids)
+
+    _finish_run(
+        run_id, requests=result["requests"],
+        items_fetched=len(items),
+        items_new=counts["new"],
+        items_duplicate=counts["duplicate"],
+        items_rejected=len(rejections),
+        messages_imported=counts["imported"],
+    )
+    if rejections:
+        logger.info("采集 %s 拒绝 %d 条：%s", source_id, len(rejections),
+                    "; ".join(rejections[:3]))
     return get_run(run_id)
 
 
@@ -219,11 +271,13 @@ def _conditional_headers(source_id):
 
 
 def _store_conditional_headers(source_id, result):
-    if not (result.etag or result.last_modified):
+    etag = result.get("etag", "")
+    last_modified = result.get("last_modified", "")
+    if not (etag or last_modified):
         return
     with db.db_conn() as conn:
-        if result.etag:
-            db.set_meta(conn, "collect:etag:{}".format(source_id), result.etag)
-        if result.last_modified:
+        if etag:
+            db.set_meta(conn, "collect:etag:{}".format(source_id), etag)
+        if last_modified:
             db.set_meta(conn, "collect:lmod:{}".format(source_id),
-                        result.last_modified)
+                        last_modified)

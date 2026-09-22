@@ -46,10 +46,10 @@
             </div>
             {% endif %}
             <div class="model-status">
-                <form method="post" action="{{ url_for('main.detect_reprobe') }}">
-    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-                    <button type="submit" class="btn btn-ghost btn-sm">重新探测模型</button>
-                </form>
+                {# 重新探测按钮通过 form 属性关联外部表单：
+                   此处不能再开一个表单元素，否则外层检测表单会被提前
+                   闭合，检测按钮将落在表单之外（真实浏览器中点击无效）。 #}
+                <button type="submit" form="detect-reprobe-form" class="btn btn-ghost btn-sm">重新探测模型</button>
             </div>
         </div>
 
@@ -63,6 +63,10 @@
         <div class="form-actions">
             <button type="submit" class="btn btn-primary" {% if not models %}disabled{% endif %}>检测</button>
         </div>
+    </form>
+
+    <form id="detect-reprobe-form" method="post" action="{{ url_for('main.detect_reprobe') }}" hidden>
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
     </form>
 </section>
 

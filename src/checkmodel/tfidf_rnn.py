@@ -16,6 +16,7 @@
   （database/tfidf_rnn.json），Docker 部署时随挂载卷持久化。
 """
 
+import hashlib
 import json
 import math
 import os
@@ -31,9 +32,11 @@ except ImportError:  # pragma: no cover - jieba 是锁定依赖，仅在异常�
     jieba = None
 
 from .base import CheckError, CheckModel
+from .base import build_sequence as base_build_sequence
 
 ARTIFACT_FORMAT = "tfidf-rnn"
 ARTIFACT_VERSION = 1
+INPUT_MODES = ("sequence", "content")
 
 DEFAULT_MAX_SEQUENCE_LENGTH = 32
 DEFAULT_MAX_FEATURES = 5000
@@ -123,16 +126,11 @@ class TfidfVectorizer:
 def build_sequence(source_text, comments, max_length=DEFAULT_MAX_SEQUENCE_LENGTH):
     """[源消息正文] + 评论按 (publish_time, id) 升序，截断到 max_length。
 
-    PDF 步骤 2：按时间顺序对评论排序以捕捉传播动态；
-    截断保留最早的评论（谣言的早期传播与辟谣信号多出现在早期）。
+    规则实现统一放在 checkmodel.base（模型与检测层的输入指纹共用），
+    此处保留同名入口兼容既有调用。截断保留最早的评论（谣言的早期
+    传播与辟谣信号多出现在早期）。
     """
-    ordered = sorted(
-        comments or [],
-        key=lambda c: (str(c.get("publish_time") or ""), int(c.get("id") or 0)),
-    )
-    texts = [str(source_text or "")]
-    texts.extend(str(c.get("content") or "") for c in ordered)
-    return texts[: max(1, int(max_length))]
+    return base_build_sequence(source_text, comments, max_length)
 
 
 # ------------------------------------------------------------ RNN 网络
@@ -272,8 +270,9 @@ def train_tfidf_rnn(samples, hidden_size=DEFAULT_HIDDEN_SIZE, epochs=DEFAULT_EPO
                     max_sequence_length=DEFAULT_MAX_SEQUENCE_LENGTH,
                     data_note="",
                     test_samples=None,
+                    input_mode="sequence",
                     progress=None):
-    """训练 TF-IDF + RNN 序列模型，返回工件 dict。
+    """训练 TF-IDF + RNN 模型，返回工件 dict。
 
     samples: [(sequence_texts, label), ...]，label 1=谣言 0=真实。
     词表只从训练折拟合（留出折的未登录词被忽略）；分层留出仅用于报告，
@@ -281,9 +280,13 @@ def train_tfidf_rnn(samples, hidden_size=DEFAULT_HIDDEN_SIZE, epochs=DEFAULT_EPO
 
     test_samples：外部提供的测试折（如按近重复分组划分的 Weibo16）。
     提供时不做内部留出，训练只用 samples，测试折指标记入 stats["test"]。
+    input_mode：sequence（正文+评论序列，PDF 完整路线）或 content
+    （仅正文，消融实验用；推理时忽略评论）。
     progress：可选回调 progress(epoch, avg_loss)，每个 epoch 结束调用，
     供 CLI 打印长训练的进度。
     """
+    if input_mode not in INPUT_MODES:
+        raise ValueError("input_mode 必须是 sequence 或 content")
     positives = [s for s in samples if s[1] == 1]
     negatives = [s for s in samples if s[1] == 0]
     if len(positives) < 2 or len(negatives) < 2:
@@ -358,6 +361,7 @@ def train_tfidf_rnn(samples, hidden_size=DEFAULT_HIDDEN_SIZE, epochs=DEFAULT_EPO
         "format": ARTIFACT_FORMAT,
         "version": ARTIFACT_VERSION,
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "input_mode": input_mode,
         "max_sequence_length": max_sequence_length,
         "hidden_size": hidden_size,
         "vocabulary": [token for token, _ in
@@ -417,6 +421,10 @@ class LoadedSequenceModel:
             raise ValueError("工件 IDF 与词表不一致")
         if not isinstance(weights, dict):
             raise ValueError("工件缺少权重")
+        input_mode = artifact.get("input_mode", "sequence")
+        if input_mode not in INPUT_MODES:
+            raise ValueError("工件 input_mode 不支持：{}".format(input_mode))
+        self.input_mode = input_mode
         self.vocabulary = {token: idx for idx, token in enumerate(vocabulary)}
         self.idf = np.array(idf, dtype=np.float64)
         wxh = np.array(weights["Wxh"], dtype=np.float64)
@@ -455,9 +463,15 @@ class LoadedSequenceModel:
 
 
 def load_artifact(path):
-    with open(path, "r", encoding="utf-8") as fh:
-        artifact = json.load(fh)
-    return LoadedSequenceModel(artifact)
+    raw = Path(path).read_bytes()
+    # 模型训练版本：工件内容哈希 + 输入模式。重新训练（数据或超参
+    # 不同）产生不同哈希；仅重新加载同一工件时保持不变。工件格式的
+    # version 字段是结构版本，不作为训练版本。
+    digest = hashlib.sha256(raw).hexdigest()[:16]
+    artifact = json.loads(raw)
+    model = LoadedSequenceModel(artifact)
+    model.version_label = "tfidf-rnn:{}:{}".format(digest, model.input_mode)
+    return model
 
 
 # ------------------------------------------------------------ 模型接口
@@ -510,6 +524,18 @@ class TfidfRnnModel(CheckModel):
     def detect(self):
         return self._load() is not None
 
+    @property
+    def uses_comments(self):
+        """序列模式工件使用评论输入；正文消融（content）工件不使用。"""
+        model = self._load()
+        return bool(model) and model.input_mode == "sequence"
+
+    @property
+    def model_version(self):
+        """实际加载工件的版本标识（内容哈希+输入模式）；不可用时为空。"""
+        model = self._load()
+        return getattr(model, "version_label", "") if model is not None else ""
+
     def initialize(self):
         self._load()
 
@@ -525,11 +551,18 @@ class TfidfRnnModel(CheckModel):
         return self._predict(model, [str(message or "")])
 
     def check_sequence(self, source_text, comments=None):
-        """PDF 完整路线：正文 + 评论按时间排序组成序列后检测。"""
+        """PDF 完整路线：正文 + 评论按时间排序组成序列后检测。
+
+        正文消融（content 模式）工件忽略评论，退化为单文本输入——
+        与训练口径一致，避免推理时使用了训练中不存在的输入。
+        """
         model = self._load()
         if model is None:
             raise CheckError(self._error or "本地序列模型不可用")
-        texts = build_sequence(source_text, comments, model.max_sequence_length)
+        if model.input_mode == "content":
+            texts = [str(source_text or "")]
+        else:
+            texts = build_sequence(source_text, comments, model.max_sequence_length)
         return self._predict(model, texts)
 
     @staticmethod

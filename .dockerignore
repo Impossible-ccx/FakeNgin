@@ -7,6 +7,7 @@
 # 本地数据与索引（部署时挂载卷）
 database/
 database_backup_*/
+artifacts/
 fakengin.db_backup_*/
 
 # 开发与过程材料

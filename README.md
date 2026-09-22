@@ -4,7 +4,7 @@
 
 ## 环境要求
 
-- Python 3.9 及以上（实测 3.13 可运行）
+- Python 3.13（本项目实测环境；依赖包自身支持更低版本，但未在本项目实测，不作承诺）
 - 依赖见 `requirements.txt`：
 
 ```bash
@@ -12,6 +12,7 @@ pip install -r requirements.txt
 ```
 
 - jieba 用于搜索分词；Pandas 用于数据读写；Flask 为 Web 框架。
+- 运行测试需另装开发依赖：`pip install -r requirements-dev.txt`（pytest）。
 - 检测模型为可选项（见下文“模型配置”），不配置时其余页面仍可使用。
 
 ## 启动
@@ -135,7 +136,8 @@ python scripts/import_csv.py --comments samples/demo_comments.csv
 # 1. 准备环境变量（模型配置、会话密钥等；也可直接改根目录 .env）
 cp .env.example .env
 
-# 2. 多 worker 部署必须固定会话密钥，生成后填入 .env 的 FLASK_SECRET_KEY
+# 2. 多 worker 部署必须固定会话密钥，生成后填入 .env 的 FLASK_SECRET_KEY；
+#    缺失时 WSGI 入口会拒绝启动（程序强制，不依赖文档提示）
 python -c "import secrets; print(secrets.token_hex(32))"
 
 # 3. 构建并启动（数据持久化在宿主机 ./database 目录）
@@ -147,6 +149,13 @@ docker compose up -d --build
   也可在 `.env` 中设置 `FAKENGIN_ADMIN_PASSWORD`。
 - `.env` 中的模型配置经环境变量注入容器，密钥不会进入镜像；容器内可直接访问
   局域网模型服务。
+- 容器安全边界：非 root 运行（UID 1000）、根文件系统只读（可写位置仅
+  `./database` 卷与 tmpfs `/tmp`）、丢弃全部 Linux 能力、禁用提权、
+  PID/内存/CPU 硬上限；不挂载 Docker socket 与宿主机家目录。
+- 在线采集在容器内的**受限子进程**中执行：独立进程组 + rlimit（地址空间/
+  CPU/写出大小），环境为白名单（不含模型密钥与业务数据目录），输出经
+  schema 校验后才入库；同来源请求间隔与全局预算跨进程持久（独立状态库），
+  同来源任务互斥，429 的 Retry-After 不被缩短。
 - SQLite 数据、搜索索引、口令文件与本地模型工件（`tfidf_rnn.json`）都在
   `./database` 挂载卷中，容器重启/重建不丢失；宿主机可直接备份整个目录。
 - 挂载目录属主需与容器运行用户一致（UID 1000）：属主不匹配时启动会以
@@ -193,20 +202,33 @@ python scripts/train_tfidf_rnn.py --data-note "数据来源说明"
 整组同侧、按类别分层），防止同一谣言的变体跨训练/测试泄漏：
 
 ```bash
-python scripts/import_weibo16.py <rumdect解压目录或zip> --data-dir <隔离目录>
+python scripts/import_weibo16.py <rumdect解压目录或zip> --data-dir <全新空目录>
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
 FAKENGIN_DATA_DIR=<隔离目录> python scripts/train_tfidf_rnn.py \
-    --split-file <隔离目录>/weibo16_split.json --data-note "Weibo16（Ma et al. IJCAI 2016）"
+    --split-file <隔离目录>/weibo16_split.json --data-note "Weibo16（Ma et al. IJCAI 2016）" \
+    --epochs 60 --hidden 24 --max-features 5000 --seed 20260921 --input sequence
 ```
 
-必须指定隔离目录（或预先设置 `FAKENGIN_DATA_DIR`），不写入业务库；目标库非空时
-拒绝导入。真实数据训练耗时约十几分钟，建议固定单线程
-（`OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1`）——微小矩阵上多线程 BLAS 反而更慢。
+导入目标必须是**全新空目录**：指向业务数据目录（含别名/符号链接）、业务目录的
+上级或非空目录都会在任何写入之前被拒绝；库内已有用户、会话等业务记录同样拒绝
+（不只数消息表）。zip 输入按解压预算校验（成员数/单文件与总量/压缩比/路径
+穿越），实际解压累计字节，超限中止，临时目录无论成败都清理。划分文件（版本 2）
+含数据集指纹与导入规则说明，训练侧严格校验（ID 交集/重复/未知、类别分布、
+指纹一致性）；版本 1 旧文件跳过指纹校验并明确提示。
 
-2026-09-22 实测（训练 3,731 / 测试 932，超参数预先固定、未在测试集上调参）：
-完整序列路线（正文+评论）测试集 F1 0.676；同划分仅正文消融测试集 F1 0.871——
-在该轻量 RNN 的末步读出下，真实转发文本（//@ 链、闲聊）会稀释源帖信号，
-评论序列未带来增益。详细数字与分析见 `deliverables/系统概述.md` 与开发记录；
-后续改进（池化/注意力读出、更短序列窗口等）应在训练折内的验证集上选择。
+真实数据训练耗时约十几分钟，**必须单线程**（上方三个 `*_NUM_THREADS=1`）——
+微小矩阵上多线程 BLAS 反而极慢且耗时失控。`--input content` 为仅正文消融口径
+（推理时同样忽略评论）；`--input sequence` 为 PDF 完整路线（默认）。
+
+2026-09-22 实测（训练 3,731 / 测试 932，60 epochs，超参数预先固定、未在测试集上
+调参）：完整序列路线测试集 F1 0.676；同划分仅正文消融测试集 F1 0.871。对该差距
+的解释（评论文本稀释源帖信号等）目前是**待验证假设**——词表/IDF 变化、序列长度、
+优化难度均可能参与；验证方法与选择规则见 `docs/模型优化实验协议.md`（未执行）。
+划分只读审计（`scripts/audit_split.py`）：跨侧精确重复 0、组键跨侧 0，但细粒度
+前缀跨侧 29 桶 112 条、评论与另一侧消息组键匹配 7,491 条——近重复分组**降低而非
+消除**泄漏风险。导入保留每事件最多 20 条早期转发，是截断的部分回复结构。
+实验产物与复现 manifest 归档在被忽略的 `artifacts/experiments/`（正文消融的
+独立工件未保存，已标记为证据缺口）。
 
 ### 远程模型（Chat Completions 兼容接口）
 
@@ -242,7 +264,10 @@ FAKENGIN_DATA_DIR=<隔离目录> python scripts/train_tfidf_rnn.py \
 ## 测试
 
 ```bash
+pip install -r requirements-dev.txt
 PYTHONPATH=src python -m pytest tests/ -q
 ```
 
-全部测试使用临时数据目录，不读写真实业务数据。
+全部测试使用临时数据目录、合成夹具与本地模拟服务，不读写真实业务数据、
+不访问真实消息源；采集子进程在测试模式下强制只连回环地址。真实浏览器
+交互（含窄屏）与 Docker 隔离验收使用独立脚本/环境，不混入 pytest。

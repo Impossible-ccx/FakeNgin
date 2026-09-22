@@ -11,6 +11,7 @@ publish_time, process_time（image_ref 可选）。
 """
 
 import csv
+import hashlib
 import math
 from datetime import datetime
 
@@ -121,6 +122,21 @@ def list_messages(limit, offset=0):
             (limit, offset),
         ).fetchall()
     return [_row_to_dict(row) for row in rows]
+
+
+def dataset_fingerprint(items):
+    """数据集指纹：排序后的 (id, 标签, 正文摘要) 的 SHA-256。
+
+    items: [{"id": int, "label": 0/1, "content": str}]。消息库自增 ID 相同
+    不代表同一数据集；导入与训练两侧用同一公式计算指纹，供划分文件的
+    身份校验（防止错库划分静默通过）。
+    """
+    parts = sorted(
+        "{}|{}|{}".format(
+            item["id"], item["label"],
+            hashlib.sha1(str(item["content"]).encode("utf-8")).hexdigest()[:16])
+        for item in items)
+    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
 
 
 def count_messages(nature=None, nature_not=None):

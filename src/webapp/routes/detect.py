@@ -113,7 +113,11 @@ def detect():
 
 
 def _save_for_review(message, model_id, model, probability, reason, duration_ms):
-    """把自由文本检测结果入库并提交复核（检测任务记录为已完成）。"""
+    """把自由文本检测结果入库并提交复核（检测任务记录为已完成）。
+
+    自由文本没有评论，序列模型的实际输入就是正文一条；input_kind 与
+    模型版本标识的记录口径与检测队列路径一致。
+    """
     try:
         message_id = newsdata.append_message({
             "content": message,
@@ -122,15 +126,19 @@ def _save_for_review(message, model_id, model, probability, reason, duration_ms)
     except ValueError as exc:
         flash(str(exc), "error")
         return None
+    uses_comments = bool(getattr(model, "uses_comments", False))
+    model_version = str(getattr(model, "model_version", "") or "")[:200]
     with newsdata.db.db_conn() as conn:
         conn.execute(
             "INSERT INTO detection_runs (message_id, model_id, model_name, "
-            "input_version, content_digest, status, probability, reason, "
-            "duration_ms, created_at, started_at, finished_at) "
-            "VALUES (?, ?, ?, 1, ?, 'succeeded', ?, ?, ?, ?, ?, ?)",
+            "input_version, content_digest, input_kind, model_version, "
+            "status, probability, reason, duration_ms, created_at, "
+            "started_at, finished_at) "
+            "VALUES (?, ?, ?, 1, ?, ?, ?, 'succeeded', ?, ?, ?, ?, ?, ?)",
             (
                 message_id, model_id, getattr(model, "display_name", model_id),
-                detection.content_digest(message),
+                detection.input_digest(message, [], uses_comments),
+                "sequence" if uses_comments else "content", model_version,
                 probability, reason, duration_ms,
                 newsdata.db.now_string(), newsdata.db.now_string(),
                 newsdata.db.now_string(),

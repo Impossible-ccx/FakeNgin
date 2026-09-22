@@ -15,7 +15,7 @@
 {% if r.latest_run %}
     {% if r.latest_run.status == 'succeeded' and r.latest_run.probability is not none %}
         <strong>{{ r.latest_run.probability }}%</strong>
-        {% if r.run_stale %}<span class="nature nature-unknown">正文已修改·结果过期</span>{% endif %}
+        {% if r.run_stale %}<span class="nature nature-unknown">输入已修改·结果过期</span>{% endif %}
     {% else %}
         <span class="nature nature-{{ run_class.get(r.latest_run.status, 'unknown') }}">{{ run_label.get(r.latest_run.status, r.latest_run.status) }}</span>
         {% if r.latest_run.error %}<span class="muted" title="{{ r.latest_run.error }}">!</span>{% endif %}

@@ -1,9 +1,14 @@
 """检测任务队列：持久化检测运行、后台执行、失败重试、过期判定。
 
 - detection_runs 保存每次检测的状态（pending/running/succeeded/failed/interrupted）、
-  模型、输入版本、正文摘要、评分、理由、错误与耗时；历史不覆盖。
-- 正文被修改后，旧检测通过 content_digest 与当前正文比对动态标记为“过期”，
-  不改写历史记录。
+  模型、输入版本、输入指纹、评分、理由、错误与耗时；历史不覆盖。
+- 输入过期按模型实际使用的输入判定：仅正文模型（input_kind=content）
+  只看正文指纹；评论序列模型（input_kind=sequence）看"正文 + 规范化
+  评论序列"的指纹——评论的增删改或时间调整都会使旧检测失效，
+  改为动态比对、不改写历史记录。推理与指纹来自同一次数据库快照，
+  避免读取正文、读取评论与写记录之间的不一致。
+- 每条记录保存实际加载的模型版本标识（如工件哈希），模型热加载或
+  重新训练后可区分新旧结果来源。
 - 后台执行：每进程一个守护线程轮询 pending 任务（课程规模够用，不引入外部队列）。
 - 多进程部署（gunicorn 多 worker）安全：任务认领 pending → running 为原子更新，
   重复认领不会发生；每个进程以 worker_id 注册并周期心跳，
@@ -19,6 +24,8 @@ import time
 import uuid
 from datetime import datetime, timedelta
 
+from checkmodel.base import build_sequence
+
 from . import db, newsdata
 
 logger = logging.getLogger("fakengin.detection")
@@ -28,8 +35,9 @@ ACTIVE_STATUSES = ("pending", "running")
 
 RUN_FIELDS = [
     "id", "message_id", "model_id", "model_name", "input_version",
-    "content_digest", "status", "probability", "reason", "error",
-    "duration_ms", "created_at", "started_at", "finished_at", "worker_id",
+    "content_digest", "input_kind", "model_version", "status", "probability",
+    "reason", "error", "duration_ms", "created_at", "started_at",
+    "finished_at", "worker_id",
 ]
 
 # worker 心跳超过该秒数视为进程已死，其 running 任务可被回收。
@@ -74,6 +82,23 @@ def _heartbeat():
 
 def content_digest(content):
     return hashlib.sha1(str(content).encode("utf-8")).hexdigest()
+
+
+def sequence_input_digest(content, comments, max_length=32):
+    """序列输入指纹：正文 + 规范化评论序列（checkmodel.base.build_sequence）。
+
+    评论内容、顺序或截断规则内任何变化都会改变指纹；序列构建规则与
+    模型推理使用同一实现，保证指纹口径与实际输入一致。
+    """
+    texts = build_sequence(content, comments, max_length)
+    return content_digest("\x1e".join(texts))
+
+
+def input_digest(content, comments, uses_comments):
+    """按模型输入口径计算指纹：正文模型不含评论，序列模型含评论。"""
+    if uses_comments:
+        return sequence_input_digest(content, comments)
+    return content_digest(content)
 
 
 # ---------------------------------------------------------------- 入队
@@ -191,19 +216,30 @@ def execute_run(run_id):
                 (db.now_string(), run_id),
             )
             return "failed"
+        # 同一事务内读取正文与评论：指纹与模型输入来自同一次快照，
+        # 避免读取正文、读取评论与写记录之间的不一致。
+        comment_rows = conn.execute(
+            "SELECT id, parent_id, content, publish_time FROM comments "
+            "WHERE message_id = ? ORDER BY publish_time, id",
+            (run["message_id"],),
+        ).fetchall()
+        comments = [dict(row) for row in comment_rows]
+        uses_comments = bool(getattr(model, "uses_comments", False))
+        model_version = str(getattr(model, "model_version", "") or "")[:200]
+        input_kind = "sequence" if uses_comments else "content"
         conn.execute(
             "UPDATE detection_runs SET status = 'running', started_at = ?, "
             "model_id = ?, model_name = ?, input_version = ?, content_digest = ?, "
-            "worker_id = ? WHERE id = ?",
+            "input_kind = ?, model_version = ?, worker_id = ? WHERE id = ?",
             (
                 db.now_string(), model_id, getattr(model, "display_name", model_id),
-                message["version"], content_digest(message["content"]),
-                _worker_identity(), run_id,
+                message["version"],
+                input_digest(message["content"], comments, uses_comments),
+                input_kind, model_version, _worker_identity(), run_id,
             ),
         )
 
     try:
-        comments = newsdata.list_comments(run["message_id"])
         probability, reason = _invoke_model(model, message["content"], comments)
         probability = max(0.0, min(100.0, float(probability)))
         status, error = "succeeded", ""
@@ -328,11 +364,37 @@ def queue_counts():
     return {"pending": pending, "running": running, "failed": failed}
 
 
-def is_stale(run, current_content):
-    """正文变更后旧检测视为过期（只读判定，不改历史）。"""
+def is_stale(run, current_content, current_comments=None):
+    """输入变更后旧检测视为过期（只读判定，不改历史）。
+
+    口径由记录的 input_kind 决定：content 只比对正文；sequence 比对
+    "正文 + 规范化评论序列"——评论的新增、修改、删除或发布时间调整
+    都会使序列模型的旧结果过期，而不会影响正文模型的结果。
+    """
     if not run.get("content_digest"):
         return False
-    return run["content_digest"] != content_digest(current_content)
+    uses_comments = run.get("input_kind") == "sequence"
+    expected = input_digest(current_content, current_comments or [], uses_comments)
+    return run["content_digest"] != expected
+
+
+def _comments_for_messages(message_ids):
+    """批量取评论，按消息 id 分组（供列表页序列结果的过期判定）。"""
+    grouped = {}
+    ids = list(dict.fromkeys(int(mid) for mid in message_ids))
+    if not ids:
+        return grouped
+    placeholders = ",".join("?" * len(ids))
+    with db.db_conn() as conn:
+        rows = conn.execute(
+            "SELECT message_id, id, parent_id, content, publish_time "
+            "FROM comments WHERE message_id IN ({}) "
+            "ORDER BY message_id, publish_time, id".format(placeholders),
+            ids,
+        ).fetchall()
+    for row in rows:
+        grouped.setdefault(row["message_id"], []).append(dict(row))
+    return grouped
 
 
 def attach_latest_runs(rows):
@@ -343,10 +405,16 @@ def attach_latest_runs(rows):
     （该字段只反映人工录入或旧 CSV 导入的数值）。
     """
     runs = latest_runs()
+    sequence_ids = [
+        row["id"] for row in rows
+        if runs.get(row["id"], {}).get("input_kind") == "sequence"
+    ]
+    comments_map = _comments_for_messages(sequence_ids)
     for row in rows:
         run = runs.get(row["id"])
         row["latest_run"] = run
-        row["run_stale"] = bool(run) and is_stale(run, row["content"])
+        row["run_stale"] = bool(run) and is_stale(
+            run, row["content"], comments_map.get(row["id"], []))
     return rows
 
 

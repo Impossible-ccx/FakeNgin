@@ -3,12 +3,22 @@
 # 使用：
 #   1. 在项目根目录准备 .env（可复制 .env.example 修改），Compose 会自动读取
 #      其中的变量并注入容器；模型密钥只经环境变量传入，不会进入镜像。
-#   2. 多 worker 部署下 FLASK_SECRET_KEY 必须设置，否则 CSRF/会话会随机失效：
+#   2. 多 worker 部署下 FLASK_SECRET_KEY 必须设置（缺失时应用入口会拒绝启动，
+#      不再依赖文档提示）。生成方式：
 #          python -c "import secrets; print(secrets.token_hex(32))"
 #   3. 启动：  docker compose up -d --build
 #      查看日志：docker compose logs -f web
 #      停止：  docker compose down
-#   数据持久化在宿主机 ./database 目录（SQLite 库、搜索索引、初始口令文件）。
+#   数据持久化在宿主机 ./database 目录（SQLite 库、搜索索引、采集状态、
+#   初始口令文件、本地模型工件）。
+#
+# 安全边界：
+#   - 容器以非 root 运行（Dockerfile USER appuser），根文件系统只读，
+#     可写位置只有挂载的 ./database 卷与 tmpfs /tmp（jieba 缓存等）；
+#   - 丢弃全部 Linux 能力并禁用提权；PID 与内存/CPU 有硬上限；
+#   - 不挂载 Docker socket、宿主机 home 或 SSH——采集子进程需要的
+#     隔离在应用内实现（collect_isolated：独立进程组 + rlimit +
+#     白名单环境，不继承模型密钥）。
 
 services:
   web:
@@ -25,10 +35,24 @@ services:
       MODEL_API_MODEL: ${MODEL_API_MODEL:-}
       MODEL_API_TIMEOUT: ${MODEL_API_TIMEOUT:-60}
       MODEL_API_MAX_TOKENS: ${MODEL_API_MAX_TOKENS:-1024}
-      # 会话密钥：多 worker 部署必须固定（生成方式见上）
+      # 会话密钥：多 worker 部署必须固定（生成方式见上；缺失时拒绝启动）
       FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:-}
       # 首次初始化管理员口令；留空则生成随机口令文件 database/admin_initial_password.txt
       FAKENGIN_ADMIN_PASSWORD: ${FAKENGIN_ADMIN_PASSWORD:-}
       # HTTPS 反代部署时置 1，为会话 Cookie 追加 Secure 标记
       FAKENGIN_COOKIE_SECURE: ${FAKENGIN_COOKIE_SECURE:-0}
     restart: unless-stopped
+    init: true                    # PID 1 信号转发与子进程回收
+    read_only: true               # 根文件系统只读；可写位置见 volumes/tmpfs
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1g
+          pids: 128

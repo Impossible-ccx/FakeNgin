@@ -1,12 +1,11 @@
 """在线采集管理页（仅 admin）：查看来源、触发一次性采集、查看运行记录。
 
 - 界面只提交来源 ID，不提供任意 URL 入口；
-- 采集为一次性任务（无定时调度），是否把新消息加入检测队列
-  由管理员显式勾选，默认关闭；
+- 采集为一次性任务（无定时调度），获取与解析在受限子进程执行，
+  同来源任务互斥；是否把新消息加入检测队列由管理员显式勾选，
+  默认关闭；
 - POST 受 CSRF 保护，权限由服务端校验。
 """
-
-import time
 
 from flask import flash, redirect, render_template, request, url_for
 
@@ -19,8 +18,10 @@ from . import main
 def collect_page():
     sources = collect_sources.list_sources()
     for source in sources:
-        wait = collect_fetch.next_allowed_time(source["id"]) - time.monotonic()
-        source["next_wait_seconds"] = max(0, int(wait) + 1)
+        # 间隔状态在采集子进程的独立状态库中维护，跨进程可见
+        wait = collect_fetch.next_wait_seconds(
+            source["id"], state_dir=collect.state_dir())
+        source["next_wait_seconds"] = int(wait) + 1
     return render_template(
         "collect.html",
         sources=sources,

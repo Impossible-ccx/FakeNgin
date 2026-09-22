@@ -285,10 +285,20 @@ a {
 @media (max-width: 720px) {
     .nav-inner {
         gap: 16px;
+        height: auto;
+        flex-wrap: wrap;
+        padding: 10px 16px;
     }
 
     .nav-links {
         gap: 14px;
+        flex-wrap: wrap;
+        order: 3;          /* 链接组换行到第二行，账户区保持在右上 */
+        flex-basis: 100%;
+    }
+
+    .nav-account {
+        margin-left: auto;
     }
 
     .cards {
@@ -348,18 +358,25 @@ a {
 
 .search-bar {
     display: flex;
+    flex-wrap: wrap;
     gap: 12px;
     margin-bottom: 20px;
 }
 
 .search-bar input[type="text"] {
-    flex: 1;
+    flex: 1 1 160px;
+    min-width: 0;
     padding: 10px 14px;
     border: 1px solid var(--line);
     border-radius: 8px;
     font-size: 15px;
     outline: none;
     transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.search-bar select,
+.search-bar input[type="date"] {
+    flex: 0 1 auto;
 }
 
 .search-bar input[type="text"]:focus {

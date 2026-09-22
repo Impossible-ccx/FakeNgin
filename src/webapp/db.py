@@ -212,6 +212,14 @@ MIGRATIONS = {
         """,
         "CREATE INDEX idx_collected_items_message ON collected_items(message_id)",
     ],
+    # 检测输入指纹扩展：序列模型的实际输入包含评论（内容/顺序/截断），
+    # input_kind 区分"仅正文"与"正文+评论序列"两种过期判定口径；
+    # model_version 记录实际加载的模型工件身份（如哈希），避免热加载
+    # 后历史记录只留下相同 model_id。旧记录默认 content 与原语义一致。
+    6: [
+        "ALTER TABLE detection_runs ADD COLUMN input_kind TEXT NOT NULL DEFAULT 'content'",
+        "ALTER TABLE detection_runs ADD COLUMN model_version TEXT NOT NULL DEFAULT ''",
+    ],
 }
 
 
