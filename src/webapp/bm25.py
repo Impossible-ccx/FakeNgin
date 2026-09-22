@@ -104,24 +104,22 @@ def _build_file_index(name, table, fingerprint, stat):
 
     base = _file_dir(name)
     _write_csv(
-        base / "postings.csv",
-        pd.DataFrame(postings, columns=POSTING_COLUMNS),
+        pd.DataFrame(postings, columns=POSTING_COLUMNS),base / "postings.csv",
         POSTING_COLUMNS,
     )
     _write_csv(
-        base / "doc_lengths.csv",
+        
         pd.DataFrame(
             [{"doc_id": i, "length": n} for i, n in enumerate(lengths)],
             columns=DOC_LENGTH_COLUMNS,
-        ),
+        ),base / "doc_lengths.csv",
         DOC_LENGTH_COLUMNS,
     )
     _write_csv(
-        base / "terms.csv",
         pd.DataFrame(
             [{"term": term, "df": count} for term, count in sorted(term_df.items())],
             columns=TERM_COLUMNS,
-        ),
+        ),base / "terms.csv",
         TERM_COLUMNS,
     )
 
@@ -134,7 +132,7 @@ def _build_file_index(name, table, fingerprint, stat):
         "source_file": name,
         "version": INDEX_VERSION,
     }], columns=FILE_META_COLUMNS)
-    _write_csv(base / "meta.csv", meta, FILE_META_COLUMNS)
+    _write_csv(meta,base / "meta.csv",  FILE_META_COLUMNS)
 
 
 def _update_file_meta_stat(name, meta, stat):
@@ -143,8 +141,7 @@ def _update_file_meta_stat(name, meta, stat):
     updated["mtime_ns"] = stat.st_mtime_ns
     updated["size"] = stat.st_size
     _write_csv(
-        _file_dir(name) / "meta.csv",
-        pd.DataFrame([updated], columns=FILE_META_COLUMNS),
+        pd.DataFrame([updated], columns=FILE_META_COLUMNS),_file_dir(name) / "meta.csv",
         FILE_META_COLUMNS,
     )
 
@@ -209,7 +206,7 @@ def _refresh_global_terms(names):
         grouped = pd.DataFrame(columns=TERM_COLUMNS)
 
     grouped["idf"] = [_idf(doc_count, float(df)) for df in grouped["df"]]
-    _write_csv(GLOBAL_TERMS_FILE, grouped[GLOBAL_TERMS_COLUMNS], GLOBAL_TERMS_COLUMNS)
+    _write_csv(grouped[GLOBAL_TERMS_COLUMNS],GLOBAL_TERMS_FILE,  GLOBAL_TERMS_COLUMNS)
 
     avgdl = (total_length / doc_count) if doc_count else 0.0
     meta_df = pd.DataFrame([{
@@ -218,7 +215,7 @@ def _refresh_global_terms(names):
         "updated_at": newsdata.now_string(),
         "version": INDEX_VERSION,
     }], columns=GLOBAL_META_COLUMNS)
-    _write_csv(GLOBAL_META_FILE, meta_df, GLOBAL_META_COLUMNS)
+    _write_csv( meta_df,GLOBAL_META_FILE, GLOBAL_META_COLUMNS)
 
 
 # --------------------------------------------------------------- 搜索

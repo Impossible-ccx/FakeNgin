@@ -31,12 +31,18 @@ def _now():
 def _read_csv(path, columns):
     if not path.exists():
         return pd.DataFrame(columns=columns)
-    return pd.read_csv(path, dtype=str).fillna("")
+    try:
+        df = pd.read_csv(path, dtype=str).fillna("")
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame(columns=columns)
+    return df.reindex(columns=columns).fillna("")
 
 
 def _write_csv(df, path, columns):
     path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(path, index=False, columns=columns)
+    tmp = path.with_name(path.name + ".tmp")
+    df.to_csv(tmp, index=False, columns=columns)
+    tmp.replace(path)
 
 
 def ensure_database():
