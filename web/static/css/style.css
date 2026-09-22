@@ -197,7 +197,7 @@ a {
     margin-bottom: 18px;
 }
 
-.field > span {
+.field>span {
     display: block;
     font-size: 13px;
     color: var(--muted);
@@ -683,7 +683,6 @@ a {
 }
 
 .detect-extra {
-    color: var(--muted);
     font-size: 13px;
     margin: 16px 0 0;
 }

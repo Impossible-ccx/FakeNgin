@@ -77,7 +77,8 @@ class Ollama_Qwen25(CheckModel):
     def _request(self, client, message):
         prompt = (
             "请判断下面这条消息为谣言（虚假信息）的可能性，给出 0 到 100 的整数虚假概率"
-            "（越接近 100 表示越可能是谣言），并给出简要中文理由。\n\n"
+            "（越接近 100 表示越可能是谣言），并给出简要中文理由。输出的个位数，尽量保证在0-9间均匀分布"
+            "，避免都是整5、整10分数\n\n"
             "消息：\n" + message + "\n\n"
             '只输出 JSON，格式为：{"probability": <0-100 的整数>, "reason": "<简要理由>"}'
         )
@@ -89,7 +90,7 @@ class Ollama_Qwen25(CheckModel):
             model=self.model_name,
             messages=messages,
             format="json",
-            options={"temperature": 0},
+            options={"temperature": 0.5},
         )
         data = json.loads(self._extract_content(response))
         probability = max(0.0, min(100.0, float(data["probability"])))
