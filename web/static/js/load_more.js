@@ -7,11 +7,28 @@
     var status = document.getElementById("load-more-status");
     var emptyRow = tableBody ? tableBody.querySelector("tr td.empty") : null;
 
-    function formatProbability(value) {
-        if (value === null || value === undefined || value === "") {
-            return '<span class="muted">未检测</span>';
+    // 与服务端 _macros.html 的风险评分口径保持一致：
+    // 最新检测任务结果 > 历史/人工概率 > 未检测
+    var RUN_LABELS = { pending: "排队中", running: "检测中", succeeded: "已完成",
+                       failed: "失败", interrupted: "已中断" };
+
+    function formatRisk(row) {
+        if (row.latest_run) {
+            if (row.latest_run.status === "succeeded" &&
+                row.latest_run.probability !== null && row.latest_run.probability !== undefined) {
+                var text = row.latest_run.probability + "%";
+                if (row.run_stale) {
+                    text += "（正文已修改·过期）";
+                }
+                return text;
+            }
+            return RUN_LABELS[row.latest_run.status] || row.latest_run.status;
         }
-        return value + "%";
+        if (row.fake_probability !== null && row.fake_probability !== undefined && row.fake_probability !== "") {
+            var origin = row.legacy_probability ? "历史导入·来源未知" : "人工录入";
+            return row.fake_probability + "%（" + origin + "）";
+        }
+        return null;
     }
 
     function escapeHtml(text) {
@@ -21,11 +38,13 @@
     }
 
     function appendRow(row) {
+        var risk = formatRisk(row);
+        var riskHtml = risk === null ? '<span class="muted">未检测</span>' : escapeHtml(risk);
         var tr = document.createElement("tr");
         tr.innerHTML =
             '<td class="cell-content"><div class="clamp">' + escapeHtml(row.content) + "</div></td>" +
             '<td><span class="nature nature-unknown">' + escapeHtml(row.nature) + "</span></td>" +
-            "<td>" + formatProbability(row.fake_probability) + "</td>" +
+            "<td>" + riskHtml + "</td>" +
             "<td>" + escapeHtml(row.source) + "</td>" +
             '<td class="cell-time">' + escapeHtml(row.publish_time || "—") + "</td>" +
             '<td class="ops-col"><a class="btn btn-sm" href="' + row.detail_url + '">详情</a></td>';

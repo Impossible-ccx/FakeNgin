@@ -1,0 +1,34 @@
+# FakeNgin Docker Compose 部署
+#
+# 使用：
+#   1. 在项目根目录准备 .env（可复制 .env.example 修改），Compose 会自动读取
+#      其中的变量并注入容器；模型密钥只经环境变量传入，不会进入镜像。
+#   2. 多 worker 部署下 FLASK_SECRET_KEY 必须设置，否则 CSRF/会话会随机失效：
+#          python -c "import secrets; print(secrets.token_hex(32))"
+#   3. 启动：  docker compose up -d --build
+#      查看日志：docker compose logs -f web
+#      停止：  docker compose down
+#   数据持久化在宿主机 ./database 目录（SQLite 库、搜索索引、初始口令文件）。
+
+services:
+  web:
+    build: .
+    container_name: fakengin-web
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./database:/app/database
+    environment:
+      # 模型配置（取自宿主机环境或根目录 .env，留空则检测页显示无可用模型）
+      MODEL_API_BASE_URL: ${MODEL_API_BASE_URL:-}
+      MODEL_API_KEY: ${MODEL_API_KEY:-}
+      MODEL_API_MODEL: ${MODEL_API_MODEL:-}
+      MODEL_API_TIMEOUT: ${MODEL_API_TIMEOUT:-60}
+      MODEL_API_MAX_TOKENS: ${MODEL_API_MAX_TOKENS:-1024}
+      # 会话密钥：多 worker 部署必须固定（生成方式见上）
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:-}
+      # 首次初始化管理员口令；留空则生成随机口令文件 database/admin_initial_password.txt
+      FAKENGIN_ADMIN_PASSWORD: ${FAKENGIN_ADMIN_PASSWORD:-}
+      # HTTPS 反代部署时置 1，为会话 Cookie 追加 Secure 标记
+      FAKENGIN_COOKIE_SECURE: ${FAKENGIN_COOKIE_SECURE:-0}
+    restart: unless-stopped

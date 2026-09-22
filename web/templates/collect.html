@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}FakeNgin · 在线采集{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="panel-head">
+        <h2>消息来源（服务端受控）</h2>
+        <span class="panel-meta">界面只提交来源 ID，不提供任意 URL 入口</span>
+    </div>
+
+    {% if sources %}
+    <div class="table-wrap">
+        <table class="msg-table">
+            <thead>
+                <tr>
+                    <th>来源</th>
+                    <th>格式</th>
+                    <th>说明</th>
+                    <th>下次可请求</th>
+                    <th class="ops-col">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in sources %}
+                <tr>
+                    <td>{{ s.name }}<br><span class="muted">{{ s.id }}</span></td>
+                    <td>{{ format_labels.get(s.format, s.format) }}{% if s.https_only %} · HTTPS{% endif %}</td>
+                    <td class="cell-content"><div class="clamp">{{ s.note or '—' }}</div></td>
+                    <td>{% if s.next_wait_seconds %}{{ s.next_wait_seconds }} 秒后{% else %}可以采集{% endif %}</td>
+                    <td class="ops-col">
+                        <form method="post" action="{{ url_for('main.collect_run') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                            <input type="hidden" name="source_id" value="{{ s.id }}">
+                            <label class="radio" style="display:inline-block">
+                                <input type="checkbox" name="enqueue_detection" value="1">
+                                导入后加入检测队列
+                            </label>
+                            <button type="submit" class="btn btn-primary btn-sm">立即采集</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="check-notice">
+        采集边界：同来源请求间隔 ≥ 5 秒，单次任务最多 10 个请求、最长 120 秒，
+        每来源每次最多接收 20 条；解析失败或越界内容会被拒绝并记录，不会进入消息表。
+    </p>
+    {% else %}
+    <p class="check-notice">尚未登记任何消息来源。来源由服务端配置（collect_sources.py），
+        需先完成调研与小规模验证后登记。</p>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <div class="panel-head">
+        <h2>采集运行记录</h2>
+        <span class="panel-meta">新 → 旧，最多显示 10 次</span>
+    </div>
+    {% if runs %}
+    <div class="table-wrap">
+        <table class="msg-table">
+            <thead>
+                <tr>
+                    <th>开始时间</th>
+                    <th>来源</th>
+                    <th>状态</th>
+                    <th>请求</th>
+                    <th>获取 / 新增 / 重复 / 拒绝</th>
+                    <th>导入消息</th>
+                    <th>说明 / 错误</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for run in runs %}
+                <tr>
+                    <td class="cell-time">{{ run.started_at }}</td>
+                    <td>{{ run.source_id }}</td>
+                    <td>{% if run.status == 'succeeded' %}<span class="nature nature-real">成功</span>{% elif run.status == 'failed' %}<span class="nature nature-fake">失败</span>{% else %}<span class="nature nature-unknown">进行中</span>{% endif %}</td>
+                    <td>{{ run.requests }}</td>
+                    <td>{{ run.items_fetched }} / {{ run.items_new }} / {{ run.items_duplicate }} / {{ run.items_rejected }}</td>
+                    <td>{{ run.messages_imported }}{% if run.not_modified %}（304 未更新）{% endif %}</td>
+                    <td class="cell-content"><div class="clamp">{{ run.error or '—' }}</div></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="check-notice">还没有采集记录。</p>
+    {% endif %}
+</section>
+{% endblock %}

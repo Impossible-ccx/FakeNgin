@@ -8,14 +8,18 @@ import time
 
 import checkmodel
 from checkmodel.base import CheckError
-from flask import flash, redirect, render_template, request, url_for
+from flask import abort, flash, redirect, render_template, request, url_for
 
-from .. import auth, detection, newsdata
+from .. import auth, detection, newsdata, ratelimit
 from . import main
 
 WARNING_HIGH = 70
 WARNING_MEDIUM = 40
 MAX_MESSAGE_LENGTH = 5000
+
+# 匿名/公开检测入口限流：每次检测都消耗一次模型调用
+DETECT_LIMIT = 10
+DETECT_WINDOW_SECONDS = 60
 
 
 def _warning(percentage):
@@ -38,10 +42,19 @@ def detect():
     if request.method == "POST":
         message = request.form.get("message", "").strip()
         save_mode = request.form.get("save_for_review") == "1"
+        user = auth.get_current_user()
+        limit_key = "detect:{}".format(request.remote_addr or "?")
+        if save_mode and (user is None or user.get("role") not in ("admin", "reviewer")):
+            # 保存入口在模型调用与写入之前做服务端角色校验；
+            # 未登录或 viewer 角色勾选“保存并提交复核”一律拒绝。
+            # 不勾选保存的匿名检测行为保持不变。
+            abort(403, description="保存并提交复核需要 admin 或 reviewer 权限")
         if not message:
             flash("请输入消息内容", "error")
         elif len(message) > MAX_MESSAGE_LENGTH:
             flash("消息内容过长（上限 {} 字）".format(MAX_MESSAGE_LENGTH), "error")
+        elif not ratelimit.allowed(limit_key, DETECT_LIMIT, DETECT_WINDOW_SECONDS):
+            abort(429, description="检测请求过于频繁，请稍后再试")
         elif not selected:
             flash("当前没有可用模型，请检查模型配置后再试", "error")
         else:
@@ -58,6 +71,8 @@ def detect():
                 if model is None:
                     flash("所选模型当前不可用，请重新选择或稍后再试", "error")
             if model is not None:
+                # 到达模型调用才计入限流窗口
+                ratelimit.record(limit_key)
                 started = time.time()
                 try:
                     probability, extra_info = model.check(message)
@@ -76,12 +91,9 @@ def detect():
                         "extra_info": extra_info,
                     }
                     if save_mode:
-                        if auth.get_current_user() is None:
-                            flash("保存并提交复核需要先登录，本次结果未保存", "error")
-                        else:
-                            _save_for_review(message, selected, model,
-                                             float(probability), extra_info,
-                                             duration_ms)
+                        _save_for_review(message, selected, model,
+                                         float(probability), extra_info,
+                                         duration_ms)
 
     selected_label = next(
         (m["display_name"] for m in models if m["id"] == selected),

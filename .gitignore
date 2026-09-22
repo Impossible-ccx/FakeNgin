@@ -26,5 +26,6 @@ fakengin.db_backup_*/
 # Local development instructions, plans, and code indexes
 docs/
 .codegraph/
+.zcodeignore
 AGENTS.md
 /虚假信息平台+学习内容推荐系统.pdf

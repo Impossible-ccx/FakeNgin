@@ -7,11 +7,21 @@
 
 from flask import flash, redirect, render_template, request, session, url_for
 
+import checkmodel
+
 from .. import auth, db, detection, newsdata, reviews
 from . import main
 
 PAGE_SIZE = 20
 QUEUE_FILTERS = ("pending", "done", "all")
+
+
+def _selected_model_id():
+    """表单里的检测模型选择；不在可用列表时退回默认（空 = 首个可用）。"""
+    model_id = (request.form.get("model") or "").strip()
+    if model_id and model_id not in {m["id"] for m in checkmodel.get_models()}:
+        return ""
+    return model_id
 
 
 @main.route("/verify")
@@ -27,7 +37,8 @@ def verify():
     if queue == "pending":
         total = newsdata.count_messages(nature=newsdata.DEFAULT_NATURE)
     elif queue == "done":
-        total = newsdata.count_messages() - newsdata.count_messages(nature=newsdata.DEFAULT_NATURE)
+        # “已处理” = 全部 - 未校验；列表与计数使用同一排除条件
+        total = newsdata.count_messages(nature_not=newsdata.DEFAULT_NATURE)
     else:
         total = newsdata.count_messages()
 
@@ -35,22 +46,23 @@ def verify():
     if page > total_pages:
         page = total_pages
 
-    nature = newsdata.DEFAULT_NATURE if queue == "pending" else None
-    rows = newsdata.list_messages_filtered(
-        nature=nature, limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE)
-    runs = detection.latest_runs()
-    for row in rows:
-        run = runs.get(row["id"])
-        row["latest_run"] = run
-        row["run_stale"] = bool(run) and detection.is_stale(run, row["content"])
+    if queue == "pending":
+        rows = newsdata.list_messages_filtered(
+            nature=newsdata.DEFAULT_NATURE,
+            limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE)
+    elif queue == "done":
+        rows = newsdata.list_messages_filtered(
+            nature_not=newsdata.DEFAULT_NATURE,
+            limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE)
+    else:
+        rows = newsdata.list_messages_filtered(
+            limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE)
+    detection.attach_latest_runs(rows)
 
-    check_row, check_state = _next_check(
-        [row for row in newsdata.load_all() if row["nature"] == newsdata.DEFAULT_NATURE]
-    )
-    if check_row is not None:
-        run = runs.get(check_row["id"])
-        check_row["latest_run"] = run
-        check_row["run_stale"] = bool(run) and detection.is_stale(run, check_row["content"])
+    pending_rows = [row for row in newsdata.load_all()
+                    if row["nature"] == newsdata.DEFAULT_NATURE]
+    detection.attach_latest_runs(pending_rows)
+    check_row, check_state = _next_check(pending_rows)
 
     return render_template(
         "verify.html",
@@ -64,6 +76,7 @@ def verify():
         total_pages=total_pages,
         queue=queue,
         queue_counts=detection.queue_counts(),
+        models=checkmodel.get_models(),
         now=db.now_string(),
     )
 
@@ -118,7 +131,7 @@ def verify_detect():
     if message_id is None:
         flash("缺少目标消息标识", "error")
         return redirect(url_for("main.verify"))
-    created = detection.enqueue([message_id])
+    created = detection.enqueue([message_id], model_id=_selected_model_id())
     if created:
         flash("已加入检测队列，稍后自动执行", "success")
     else:
@@ -132,7 +145,7 @@ def verify_detect_batch():
     """对全部未校验消息批量发起检测。"""
     pending_ids = [row["id"] for row in newsdata.load_all()
                    if row["nature"] == newsdata.DEFAULT_NATURE]
-    created = detection.enqueue(pending_ids)
+    created = detection.enqueue(pending_ids, model_id=_selected_model_id())
     skipped = len(pending_ids) - created
     message = "已加入检测队列 {} 条".format(created)
     if skipped:
@@ -172,6 +185,7 @@ def verify_review():
             evidence=request.form.get("evidence", ""),
             note=request.form.get("note", ""),
             detection_run_id=request.form.get("detection_run_id", type=int),
+            expected_version=request.form.get("version", type=int),
         )
         flash("审核记录已保存", "success")
     except ValueError as exc:

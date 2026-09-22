@@ -33,3 +33,13 @@ class CheckModel:
         失败时抛出 CheckError。
         """
         raise NotImplementedError
+
+    def check_sequence(self, source_text, comments=None):
+        """检测带评论回复树的消息（PDF 序列路线）。
+
+        comments 为该消息的评论列表（含 content/publish_time 等字段）。
+        默认实现退化为单文本检测；支持序列路线的模型（如本地
+        TF-IDF+RNN）覆写本方法以利用评论传播的时间动态性。
+        失败时抛出 CheckError。
+        """
+        return self.check(source_text)

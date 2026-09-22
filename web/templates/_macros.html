@@ -1,0 +1,29 @@
+{# 共享展示宏：模型风险评分列的统一口径。
+
+  优先级：
+  1. 最新检测任务（detection_runs）：succeeded 显示评分（过期则标记），
+     其他状态显示 排队中/检测中/失败/已中断；
+  2. 无检测任务但 messages.fake_probability 有值：历史导入（legacy_probability=1）
+     或人工录入的概率，明确标注来源，不冒充模型检测结果；
+  3. 两者皆无：未检测。
+
+  人工结论展示在“性质”列，与此列互不覆盖。 #}
+{% set run_class = {'pending': 'unknown', 'running': 'neutral', 'succeeded': 'real', 'failed': 'fake', 'interrupted': 'fake'} %}
+{% set run_label = {'pending': '排队中', 'running': '检测中', 'succeeded': '已完成', 'failed': '失败', 'interrupted': '已中断'} %}
+
+{% macro risk_cell(r) %}
+{% if r.latest_run %}
+    {% if r.latest_run.status == 'succeeded' and r.latest_run.probability is not none %}
+        <strong>{{ r.latest_run.probability }}%</strong>
+        {% if r.run_stale %}<span class="nature nature-unknown">正文已修改·结果过期</span>{% endif %}
+    {% else %}
+        <span class="nature nature-{{ run_class.get(r.latest_run.status, 'unknown') }}">{{ run_label.get(r.latest_run.status, r.latest_run.status) }}</span>
+        {% if r.latest_run.error %}<span class="muted" title="{{ r.latest_run.error }}">!</span>{% endif %}
+    {% endif %}
+{% elif r.fake_probability is not none %}
+    {{ r.fake_probability }}%
+    <span class="nature nature-unknown">{{ '历史导入·来源未知' if r.legacy_probability else '人工录入' }}</span>
+{% else %}
+    <span class="muted">未检测</span>
+{% endif %}
+{% endmacro %}

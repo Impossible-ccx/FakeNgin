@@ -27,6 +27,7 @@ def data():
         page = total_pages
 
     rows = newsdata.list_messages(PAGE_SIZE, (page - 1) * PAGE_SIZE)
+    detection.attach_latest_runs(rows)
     search = _filtered_search(filters, page=spage) if filters["q"] else None
     cloud, cloud_meta = keywords.top_keywords(window_days=filters["window"])
 
@@ -52,6 +53,7 @@ def data_more():
     if offset < 0:
         offset = 0
     rows = newsdata.list_messages(PAGE_SIZE, offset)
+    detection.attach_latest_runs(rows)
     return jsonify({
         "rows": [_row_brief(row) for row in rows],
         "has_more": offset + len(rows) < newsdata.count_messages(),
@@ -156,8 +158,10 @@ def _filtered_search(filters, page):
     if page > total_pages:
         page = total_pages
     start = (page - 1) * SEARCH_PAGE_SIZE
+    page_rows = rows[start:start + SEARCH_PAGE_SIZE]
+    detection.attach_latest_runs(page_rows)
     return {
-        "rows": rows[start:start + SEARCH_PAGE_SIZE],
+        "rows": page_rows,
         "page": page,
         "total": total,
         "total_pages": total_pages,
@@ -165,11 +169,22 @@ def _filtered_search(filters, page):
 
 
 def _row_brief(row):
+    """滚动加载 / 搜索翻页的 JSON 行；与页面同一风险评分展示口径。"""
+    run = row.get("latest_run")
+    latest_run = None
+    if run is not None:
+        latest_run = {
+            "status": run["status"],
+            "probability": run["probability"],
+        }
     return {
         "id": row["id"],
         "content": row["content"],
         "nature": row["nature"],
         "fake_probability": row["fake_probability"],
+        "legacy_probability": row["legacy_probability"],
+        "latest_run": latest_run,
+        "run_stale": bool(row.get("run_stale")),
         "source": row["source"],
         "publish_time": row["publish_time"],
         "detail_url": "/data/message/{}".format(row["id"]),

@@ -123,26 +123,45 @@ def list_messages(limit, offset=0):
     return [_row_to_dict(row) for row in rows]
 
 
-def count_messages(nature=None):
-    """统计消息数；nature 指定时只统计该性质。"""
+def count_messages(nature=None, nature_not=None):
+    """统计消息数；nature 指定时只统计该性质，nature_not 指定时排除该性质。"""
     with db.db_conn() as conn:
-        if nature is None:
+        if nature is None and nature_not is None:
             return conn.execute("SELECT COUNT(*) AS n FROM messages").fetchone()["n"]
+        clauses, params = [], []
+        if nature is not None:
+            clauses.append("nature = ?")
+            params.append(nature)
+        if nature_not is not None:
+            clauses.append("nature != ?")
+            params.append(nature_not)
         return conn.execute(
-            "SELECT COUNT(*) AS n FROM messages WHERE nature = ?", (nature,)
+            "SELECT COUNT(*) AS n FROM messages WHERE {}".format(
+                " AND ".join(clauses)),
+            params,
         ).fetchone()["n"]
 
 
-def list_messages_filtered(nature=None, limit=20, offset=0):
-    """分页读取消息；nature=None 为全部，指定时只返回该性质（如待复核队列）。"""
-    where = "" if nature is None else "WHERE nature = ?"
-    params = () if nature is None else (nature,)
+def list_messages_filtered(nature=None, limit=20, offset=0, nature_not=None):
+    """分页读取消息；nature=None 为全部，指定时只返回该性质（如待复核队列）。
+
+    nature_not 指定时排除该性质（如“已处理”队列 = 全部 - 未校验），
+    与 count_messages 的口径保持一致。
+    """
+    clauses, params = [], []
+    if nature is not None:
+        clauses.append("nature = ?")
+        params.append(nature)
+    if nature_not is not None:
+        clauses.append("nature != ?")
+        params.append(nature_not)
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
     with db.db_conn() as conn:
         rows = conn.execute(
             "SELECT * FROM messages {} "
             "ORDER BY (publish_time = '') ASC, publish_time DESC, id DESC "
             "LIMIT ? OFFSET ?".format(where),
-            params + (limit, offset),
+            params + [limit, offset],
         ).fetchall()
     return [_row_to_dict(row) for row in rows]
 
@@ -165,21 +184,34 @@ def append_message(data):
     row = normalize_row(data)
     if not row["content"]:
         raise ValueError("消息内容不能为空")
-    now = db.now_string()
     with db.db_conn() as conn:
-        cursor = conn.execute(
-            "INSERT INTO messages (content, nature, fake_probability, source, "
-            "publish_time, process_time, image_ref, legacy_probability, "
-            "created_at, updated_at, version) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 1)",
-            (
-                row["content"], row["nature"], row["fake_probability"],
-                row["source"], row["publish_time"], row["process_time"],
-                str(data.get("image_ref", "") or ""), now, now,
-            ),
-        )
+        message_id = insert_message_in_tx(conn, row, data)
         _bump_data_version(conn)
-        return cursor.lastrowid
+        return message_id
+
+
+def insert_message_in_tx(conn, row, data):
+    """在已开启的事务连接内插入一条消息，返回稳定 ID。
+
+    供采集导入等批量场景复用（整批一个事务）；row 为 normalize_row
+    的结果，data 用于取 image_ref 等附加字段。不递增数据版本，
+    由调用方在批次结束时统一执行。
+    """
+    if not row["content"]:
+        raise ValueError("消息内容不能为空")
+    now = db.now_string()
+    cursor = conn.execute(
+        "INSERT INTO messages (content, nature, fake_probability, source, "
+        "publish_time, process_time, image_ref, legacy_probability, "
+        "created_at, updated_at, version) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, 1)",
+        (
+            row["content"], row["nature"], row["fake_probability"],
+            row["source"], row["publish_time"], row["process_time"],
+            str(data.get("image_ref", "") or ""), now, now,
+        ),
+    )
+    return cursor.lastrowid
 
 
 def update_message(message_id, expected_version, data):
@@ -376,3 +408,106 @@ def list_comments(message_id):
             (message_id,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+# ------------------------------------------------------------ 评论 CSV 导入
+
+COMMENT_COLUMNS = ["ref", "message_content", "parent_ref", "content", "publish_time"]
+
+
+def import_comments_csv(path):
+    """把评论 CSV 导入 comments 表（回复树 + 检测序列数据）。
+
+    列：ref（本文件内唯一行标识）、message_content（所属消息正文，
+    须与库内正文完全一致且唯一）、parent_ref（父评论 ref，空为顶层，
+    须引用文件中更早的行且属同一消息）、content、publish_time。
+
+    两阶段：先完成全部校验（解析、消息定位、父引用、重复判定），
+    任一行有错则整文件不导入；全部通过后在同一事务内按文件顺序插入。
+    库内已存在的 (所属消息, 正文, 时间) 视为重复跳过，重复行的子评论
+    关联到库内已有父评论，重复导入不产生新记录。
+    返回 {"imported", "duplicates", "errors": [{"row", "error"}]}。
+    """
+    rows = []
+    errors = []
+    with open(path, "r", encoding="utf-8-sig", newline="") as fh:
+        reader = csv.DictReader(fh)
+        header = [name.strip() for name in (reader.fieldnames or [])]
+        missing = [col for col in COMMENT_COLUMNS if col not in header]
+        if missing:
+            raise ValueError("CSV 缺少必需列：{}".format("、".join(missing)))
+        for line_no, raw in enumerate(reader, start=2):
+            try:
+                ref = (raw.get("ref") or "").strip()
+                if not ref:
+                    raise ValueError("ref 不能为空")
+                content = (raw.get("content") or "").strip()
+                if not content:
+                    raise ValueError("评论内容不能为空")
+                rows.append({
+                    "row": line_no,
+                    "ref": ref,
+                    "message_content": (raw.get("message_content") or "").strip(),
+                    "parent_ref": (raw.get("parent_ref") or "").strip(),
+                    "content": content,
+                    "publish_time": _normalize_time((raw.get("publish_time") or "").strip()),
+                })
+            except ValueError as exc:
+                errors.append({"row": line_no, "error": str(exc)})
+
+    seen_refs = set()
+    for row in rows:
+        if row["ref"] in seen_refs:
+            errors.append({"row": row["row"], "error": "ref 重复：{}".format(row["ref"])})
+        seen_refs.add(row["ref"])
+
+    with db.db_conn() as conn:
+        # 校验阶段：解析所属消息与父引用、判定重复，不写库
+        ref_info = {}  # ref -> (message_id, 库内已有评论 ID 或 None)
+        plan = []      # (row, message_id, parent_ref, 是否重复)
+        for row in rows:
+            found = conn.execute(
+                "SELECT id FROM messages WHERE content = ?", (row["message_content"],)
+            ).fetchall()
+            if len(found) != 1:
+                errors.append({"row": row["row"], "error": "所属消息不存在或不唯一"})
+                continue
+            message_id = found[0]["id"]
+            if row["parent_ref"]:
+                parent = ref_info.get(row["parent_ref"])
+                if parent is None or parent[0] != message_id:
+                    errors.append({
+                        "row": row["row"],
+                        "error": "父评论 ref 不存在、未在其之前定义或不属于同一消息",
+                    })
+                    continue
+            existing = conn.execute(
+                "SELECT id FROM comments WHERE message_id = ? AND content = ? "
+                "AND publish_time = ?",
+                (message_id, row["content"], row["publish_time"]),
+            ).fetchone()
+            ref_info[row["ref"]] = (message_id, existing["id"] if existing else None)
+            plan.append((row, message_id, row["parent_ref"], existing is not None))
+
+        if errors:
+            return {"imported": 0, "duplicates": 0, "errors": errors}
+
+        imported = 0
+        duplicates = 0
+        ref_to_dbid = {}
+        now = db.now_string()
+        for row, message_id, parent_ref, is_duplicate in plan:
+            if is_duplicate:
+                ref_to_dbid[row["ref"]] = ref_info[row["ref"]][1]
+                duplicates += 1
+                continue
+            parent_id = ref_to_dbid.get(parent_ref) if parent_ref else None
+            cursor = conn.execute(
+                "INSERT INTO comments (message_id, parent_id, content, publish_time, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (message_id, parent_id, row["content"], row["publish_time"], now),
+            )
+            ref_to_dbid[row["ref"]] = cursor.lastrowid
+            imported += 1
+
+    return {"imported": imported, "duplicates": duplicates, "errors": errors}

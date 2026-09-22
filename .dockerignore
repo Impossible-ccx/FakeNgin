@@ -1,0 +1,26 @@
+# 构建上下文只保留运行所需，密钥与本地数据绝不进入镜像
+.git
+.env
+.env.*
+!.env.example
+
+# 本地数据与索引（部署时挂载卷）
+database/
+database_backup_*/
+fakengin.db_backup_*/
+
+# 开发与过程材料
+tests/
+docs/
+deliverables/
+.codegraph/
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# 大文件与本机说明
+*.pdf
+AGENTS.md
+README.md
+Dockerfile
+docker-compose.yml

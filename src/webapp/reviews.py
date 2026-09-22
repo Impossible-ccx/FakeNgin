@@ -19,12 +19,16 @@ REVIEW_FIELDS = [
 
 
 def add_review(message_id, reviewer, conclusion, evidence="", note="",
-               detection_run_id=None):
+               detection_run_id=None, expected_version=None):
     """保存审核记录并更新消息当前性质；原子事务。返回记录 id。
 
     - reviewer 必须是已登录用户名（由路由层保证）。
     - conclusion 必须在 CONCLUSIONS 内。
-    - detection_run_id 提供时必须存在（关联的模型检测记录）。
+    - detection_run_id 提供时必须存在且属于同一条消息（防跨消息关联）；
+      失败/中断/已过期的检测也允许关联（审核人可能正是看到了失败结果），
+      过期与否由展示层标记，不在写入层强制。
+    - expected_version 提供时必须与当前消息版本一致；正文或属性被其他
+      操作改动后，旧页面提交的审核会被拒绝，要求刷新后重审。
     """
     reviewer = (reviewer or "").strip()
     conclusion = (conclusion or "").strip()
@@ -47,10 +51,17 @@ def add_review(message_id, reviewer, conclusion, evidence="", note="",
         ).fetchone()
         if message is None:
             raise ValueError("消息不存在，可能已被删除")
-        if detection_run_id is not None and conn.execute(
-            "SELECT 1 FROM detection_runs WHERE id = ?", (detection_run_id,)
-        ).fetchone() is None:
-            raise ValueError("关联检测任务不存在")
+        if expected_version is not None and message["version"] != expected_version:
+            raise ValueError("消息已被其他操作修改，请刷新后重新审核")
+        if detection_run_id is not None:
+            run = conn.execute(
+                "SELECT message_id FROM detection_runs WHERE id = ?",
+                (detection_run_id,),
+            ).fetchone()
+            if run is None:
+                raise ValueError("关联检测任务不存在")
+            if run["message_id"] != message_id:
+                raise ValueError("关联检测任务不属于该消息")
 
         cursor = conn.execute(
             "INSERT INTO reviews (message_id, detection_run_id, reviewer, "

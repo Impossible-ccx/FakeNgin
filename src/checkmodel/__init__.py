@@ -10,6 +10,7 @@ import config  # 加载本地 .env；进程环境变量优先
 
 MODEL_MODULES = [
     "compatible_api",
+    "tfidf_rnn",
     "template_model",
     "ollama_qwen25",
 ]

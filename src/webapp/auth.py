@@ -3,6 +3,7 @@
 登录成功后生成 session_id 并写入 sessions.csv，Cookie 中只保存 session_id。
 """
 
+import os
 import uuid
 from datetime import datetime, timedelta
 from functools import wraps
@@ -60,6 +61,9 @@ def set_session_cookie(response, session_id):
         max_age=SESSION_MAX_AGE,
         httponly=True,
         samesite="Lax",
+        # 与 Flask 会话 Cookie 的 FAKENGIN_COOKIE_SECURE 配置保持一致，
+        # HTTPS 部署时自定义登录 Cookie 同样只经加密信道传输。
+        secure=os.getenv("FAKENGIN_COOKIE_SECURE") == "1",
     )
     return response
 

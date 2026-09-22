@@ -162,6 +162,56 @@ MIGRATIONS = {
         "CREATE INDEX idx_messages_publish_time ON messages(publish_time)",
         "CREATE INDEX idx_messages_nature ON messages(nature)",
     ],
+    # 检测任务所有权：多进程部署时凭 worker 心跳区分“仍在执行”与“已死进程遗留”，
+    # 避免 recover_interrupted 误伤其他活跃进程的任务。
+    4: [
+        "ALTER TABLE detection_runs ADD COLUMN worker_id TEXT NOT NULL DEFAULT ''",
+        """
+        CREATE TABLE workers (
+            worker_id TEXT PRIMARY KEY,
+            started_at TEXT NOT NULL,
+            heartbeat_at TEXT NOT NULL
+        )
+        """,
+        "CREATE INDEX idx_detection_worker ON detection_runs(worker_id)",
+    ],
+    # 在线采集：运行记录与外部条目（幂等去重键 = 来源 + 外部 ID）。
+    5: [
+        """
+        CREATE TABLE collection_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+            requests INTEGER NOT NULL DEFAULT 0,
+            items_fetched INTEGER NOT NULL DEFAULT 0,
+            items_new INTEGER NOT NULL DEFAULT 0,
+            items_duplicate INTEGER NOT NULL DEFAULT 0,
+            items_rejected INTEGER NOT NULL DEFAULT 0,
+            messages_imported INTEGER NOT NULL DEFAULT 0,
+            not_modified INTEGER NOT NULL DEFAULT 0,
+            error TEXT NOT NULL DEFAULT ''
+        )
+        """,
+        "CREATE INDEX idx_collection_runs_source ON collection_runs(source_id)",
+        """
+        CREATE TABLE collected_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id TEXT NOT NULL,
+            external_id TEXT NOT NULL,
+            title TEXT NOT NULL DEFAULT '',
+            content TEXT NOT NULL,
+            link TEXT NOT NULL DEFAULT '',
+            published_at TEXT NOT NULL DEFAULT '',
+            collected_at TEXT NOT NULL,
+            truncated INTEGER NOT NULL DEFAULT 0,
+            message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+            UNIQUE (source_id, external_id)
+        )
+        """,
+        "CREATE INDEX idx_collected_items_message ON collected_items(message_id)",
+    ],
 }
 
 
@@ -188,30 +238,58 @@ def db_conn():
 # ---------------------------------------------------------------- 迁移
 
 def init_db():
-    """建库并按版本执行迁移；重复调用安全。
+    """建库并按版本执行迁移；重复调用与多进程并发调用均安全。
 
-    迁移在独立事务中执行且迁移期间关闭外键检查（表重建迁移的需要），
-    数据写入操作仍通过 db_conn 的外键开启连接进行。
+    多进程（如 gunicorn 多 worker）并发首次初始化时，另一进程可能已
+    完成迁移或播种：迁移冲突则重读 user_version 重试，管理员重复插入
+    视为初始化成功。
     """
+    last_error = None
+    for _attempt in range(3):
+        try:
+            _init_db_once()
+            return
+        except sqlite3.IntegrityError as exc:
+            if "users.username" in str(exc):
+                return
+            raise
+        except sqlite3.OperationalError as exc:
+            last_error = exc
+    raise last_error
+
+
+def _init_db_once():
+    # 新数据目录：先创建目录再连接，否则报 unable to open database file
     DATABASE_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DATABASE_FILE, timeout=10)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=10000")
+    conn.execute("PRAGMA journal_mode=WAL")
+    # 手动事务控制：BEGIN EXCLUSIVE 把多进程并发初始化串行化——
+    # 后到进程拿到锁后重读 user_version，看到已完成的迁移就直接跳过，
+    # 不会与进行中的迁移互相冲突（“table already exists”竞态）。
+    conn.isolation_level = None
     try:
+        # PRAGMA foreign_keys 在事务内是空操作，必须在 BEGIN 之前设置；
+        # 迁移期间关闭外键检查（表重建迁移需要保留子表数据）
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("BEGIN EXCLUSIVE")
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         max_version = max(MIGRATIONS) if MIGRATIONS else 0
         if version < max_version:
-            # PRAGMA foreign_keys 在事务内是空操作，必须在事务外设置
-            conn.execute("PRAGMA foreign_keys=OFF")
-            with conn:
-                for target in sorted(MIGRATIONS):
-                    if target > version:
-                        for sql in MIGRATIONS[target]:
-                            conn.execute(sql)
-                        conn.execute("PRAGMA user_version = {}".format(int(target)))
-        with conn:
-            _seed_default_admin(conn)
+            for target in sorted(MIGRATIONS):
+                if target > version:
+                    for sql in MIGRATIONS[target]:
+                        conn.execute(sql)
+                    conn.execute("PRAGMA user_version = {}".format(int(target)))
+        _seed_default_admin(conn)
+        conn.execute("COMMIT")
+    except BaseException:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        raise
     finally:
         conn.close()
 
@@ -220,25 +298,26 @@ def _seed_default_admin(conn):
     if conn.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None:
         return
     password = os.getenv("FAKENGIN_ADMIN_PASSWORD", "").strip()
-    if not password:
-        password = secrets.token_urlsafe(12)
-        password_file = DATABASE_DIR / ADMIN_PASSWORD_FILE
-        DATABASE_DIR.mkdir(parents=True, exist_ok=True)
-        password_file.write_text(
-            "账户：{}\n初始密码：{}\n（首次初始化生成；登录后请修改并删除本文件）\n".format(
-                DEFAULT_ADMIN_USERNAME, password),
-            encoding="utf-8")
-        password_file.chmod(0o600)
-        print("已生成管理员初始密码文件：{}".format(password_file))
+    generated = password or secrets.token_urlsafe(12)
     conn.execute(
         "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
         (
             DEFAULT_ADMIN_USERNAME,
-            generate_password_hash(password),
+            generate_password_hash(generated),
             "admin",
             now_string(),
         ),
     )
+    if not password:
+        # 只有插入成功的进程才写口令文件，保证文件与库中哈希一致
+        password_file = DATABASE_DIR / ADMIN_PASSWORD_FILE
+        DATABASE_DIR.mkdir(parents=True, exist_ok=True)
+        password_file.write_text(
+            "账户：{}\n初始密码：{}\n（首次初始化生成；登录后请修改并删除本文件）\n".format(
+                DEFAULT_ADMIN_USERNAME, generated),
+            encoding="utf-8")
+        password_file.chmod(0o600)
+        print("已生成管理员初始密码文件：{}".format(password_file))
 
 
 def get_meta(conn, key, default=""):
@@ -285,6 +364,19 @@ def create_user(username, password, role="reviewer"):
             "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
             (username, generate_password_hash(password), role, now_string()),
         )
+
+
+def update_password(username, new_password):
+    """修改指定用户密码（哈希存储）。用户不存在抛 ValueError。"""
+    if find_user(username) is None:
+        raise ValueError("账户不存在")
+    with db_conn() as conn:
+        cursor = conn.execute(
+            "UPDATE users SET password_hash = ? WHERE username = ?",
+            (generate_password_hash(new_password), username),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError("密码修改失败")
 
 
 # ------------------------------------------------------------- sessions

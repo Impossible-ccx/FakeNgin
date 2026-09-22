@@ -729,6 +729,18 @@ a {
     margin-left: auto;
 }
 
+.queue-actions select,
+.check-form select {
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: inherit;
+    background: #fff;
+    color: inherit;
+    outline: none;
+}
+
 .review-run-meta {
     color: var(--muted);
     font-size: 13px;

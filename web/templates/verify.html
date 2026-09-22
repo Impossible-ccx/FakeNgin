@@ -23,6 +23,12 @@
         <form class="queue-actions" method="post" action="{{ url_for('main.verify_detect_batch') }}">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="queue" value="{{ queue }}">
+            {% if models %}
+            <select name="model" aria-label="检测模型">
+                <option value="">默认模型</option>
+                {% for m in models %}<option value="{{ m.id }}">{{ m.display_name }}</option>{% endfor %}
+            </select>
+            {% endif %}
             <button type="submit" class="btn btn-sm">检测全部未校验</button>
         </form>
     </div>
@@ -83,6 +89,7 @@
                         <form method="post" action="{{ url_for('main.verify_review') }}" class="review-form">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                             <input type="hidden" name="id" value="{{ r.id }}">
+                            <input type="hidden" name="version" value="{{ r.version }}">
                             <input type="hidden" name="queue" value="{{ queue }}">
                             {% if r.latest_run %}<input type="hidden" name="detection_run_id" value="{{ r.latest_run.id }}">{% endif %}
                             <div class="field">
@@ -194,6 +201,7 @@
             <form method="post" action="{{ url_for('main.verify_review') }}" class="check-form">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="id" value="{{ check_row.id }}">
+                <input type="hidden" name="version" value="{{ check_row.version }}">
                 <input type="hidden" name="detection_run_id" value="{{ check_row.latest_run.id }}">
                 <div class="radio-group">
                     {% for c in review_options %}
@@ -213,6 +221,12 @@
             <form method="post" action="{{ url_for('main.verify_detect') }}" class="check-form">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="id" value="{{ check_row.id }}">
+                {% if models %}
+                <select name="model" aria-label="检测模型">
+                    <option value="">默认模型</option>
+                    {% for m in models %}<option value="{{ m.id }}">{{ m.display_name }}</option>{% endfor %}
+                </select>
+                {% endif %}
                 <button type="submit" class="btn btn-primary">先发起模型检测</button>
             </form>
             {% endif %}
