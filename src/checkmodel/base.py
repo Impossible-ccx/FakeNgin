@@ -23,7 +23,7 @@ class CheckModel:
         """检查模型在当前环境是否可用，默认恒可用。"""
         return True
 
-    def check(self, message):
+    def check(self, message) -> tuple[float, str]:
         """检测消息，返回 (虚假概率 0-100, 额外信息字符串)。
 
         失败时抛出 CheckError。

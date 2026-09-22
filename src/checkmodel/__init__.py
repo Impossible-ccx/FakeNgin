@@ -5,6 +5,7 @@
 """
 
 import importlib
+from . import base
 
 MODEL_MODULES = [
     "template_model",
@@ -63,7 +64,7 @@ def get_models():
     return models
 
 
-def get_model(model_id):
+def get_model(model_id) -> base.CheckModel:
     """按 id 获取可用模型实例，不存在或不可用时抛出 KeyError。"""
     _ensure_loaded()
     if model_id not in _instances:
