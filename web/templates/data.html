@@ -22,7 +22,7 @@
                 <thead>
                     <tr>
                         <th>消息内容</th>
-                        <th>性质</th>
+                        <th>数据集标签</th>
                         <th>风险评分</th>
                         <th>历史分类分数</th>
                         <th>来源</th>
@@ -34,7 +34,7 @@
                     {% for r in search_results %}
                     <tr>
                         <td class="cell-content"><div class="clamp">{{ r.content }}</div></td>
-                        <td><span class="nature nature-{{ nature_class.get(r.nature, 'unknown') }}">{{ r.nature }}</span></td>
+                        <td><span class="nature nature-{{ nature_class.get(r.nature, 'unknown') }}">{{ '未标注' if r.nature == '未校验' else r.nature or '未标注' }}</span></td>
                         <td title="{{ r.risk_model }} · {{ r.risk_reason }}">{% if r.risk_score %}{{ r.risk_score }} / 100{% else %}<span class="muted">—</span>{% endif %}</td>
                         <td>{% if r.fake_probability %}{{ r.fake_probability }}%{% else %}<span class="muted">—</span>{% endif %}</td>
                         <td>{{ r.source }}</td>
@@ -64,7 +64,7 @@
             <thead>
                 <tr>
                     <th>消息内容</th>
-                    <th>性质</th>
+                    <th>数据集标签</th>
                     <th>风险评分</th>
                     <th>历史分类分数</th>
                     <th>来源</th>
@@ -76,7 +76,7 @@
                 {% for r in rows %}
                 <tr>
                     <td class="cell-content"><div class="clamp">{{ r.content }}</div></td>
-                    <td><span class="nature nature-{{ nature_class.get(r.nature, 'unknown') }}">{{ r.nature }}</span></td>
+                    <td><span class="nature nature-{{ nature_class.get(r.nature, 'unknown') }}">{{ '未标注' if r.nature == '未校验' else r.nature or '未标注' }}</span></td>
                     <td title="{{ r.risk_model }} · {{ r.risk_reason }}">{% if r.risk_score %}{{ r.risk_score }} / 100{% else %}<span class="muted">—</span>{% endif %}</td>
                     <td>{% if r.fake_probability %}{{ r.fake_probability }}%{% else %}<span class="muted">—</span>{% endif %}</td>
                     <td>{{ r.source }}</td>

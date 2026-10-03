@@ -36,7 +36,6 @@ COLUMNS = [
 ]
 RISK_COLUMNS = {"risk_score", "risk_model", "risk_reason", "risk_prompt_version"}
 NATURES = ["虚假", "真实", "中立", "未校验"]
-VERIFY_NATURES = ["虚假", "真实", "中立"]
 DEFAULT_NATURE = "未校验"
 
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -53,13 +52,8 @@ META_COLUMNS = ["_file", "_row", "_signature"]
 # ------------------------------------------------------------ 基础读写
 
 def ensure_newsdata():
-    """确保 newsdata 目录与 manual.csv 存在。"""
+    """确保数据目录存在；历史 CSV 按需读取。"""
     NEWSDATA_DIR.mkdir(parents=True, exist_ok=True)
-    if not (NEWSDATA_DIR / MANUAL_FILE).exists():
-        _write_path(
-            NEWSDATA_DIR / MANUAL_FILE,
-            pd.DataFrame(columns=COLUMNS),
-        )
 
 
 def list_tables():

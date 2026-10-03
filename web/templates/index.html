@@ -6,24 +6,20 @@
 <section class="hero">
     <h1 class="hero-title">FakeNgin</h1>
     <p class="hero-subtitle">
-        简介占位：此处将用于介绍 FakeNgin 谣言检测平台的目标、数据来源与核心能力。
+        使用本地大模型分析消息风险，比较不同模型的判断，并检索已有消息。
+        风险等级用于辅助判断，不等同于事实真假。
     </p>
 
     <div class="cards">
         <div class="card">
-            <h3>谣言数据展示</h3>
-            <p>浏览与检索已收集的谣言数据。</p>
-            <a class="btn btn-primary" href="{{ url_for('main.data') }}">进入</a>
+            <h3>自动风险检测</h3>
+            <p>选择单模型分析或多模型投票，查看风险评分、判断理由和聚合结果。</p>
+            <a class="btn btn-primary" href="{{ url_for('main.detect') }}">开始检测</a>
         </div>
         <div class="card">
-            <h3>谣言检测系统</h3>
-            <p>对文本进行自动谣言检测与分析。</p>
-            <a class="btn btn-primary" href="{{ url_for('main.detect') }}">进入</a>
-        </div>
-        <div class="card">
-            <h3>人工校验系统</h3>
-            <p>对检测结果进行人工复核与标注。</p>
-            <a class="btn btn-primary" href="{{ url_for('main.verify') }}">进入</a>
+            <h3>数据浏览与检索</h3>
+            <p>按关键词检索已有消息，浏览消息来源、风险评分与历史标签。</p>
+            <a class="btn btn-primary" href="{{ url_for('main.data') }}">浏览数据</a>
         </div>
     </div>
 </section>

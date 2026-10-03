@@ -12,9 +12,8 @@
         <div class="nav-inner">
             <a class="brand" href="{{ url_for('main.index') }}">FakeNgin</a>
             <nav class="nav-links">
-                <a href="{{ url_for('main.data') }}">谣言数据展示</a>
-                <a href="{{ url_for('main.detect') }}">谣言检测系统</a>
-                <a href="{{ url_for('main.verify') }}">人工校验系统</a>
+                <a href="{{ url_for('main.detect') }}">自动风险检测</a>
+                <a href="{{ url_for('main.data') }}">数据浏览与检索</a>
             </nav>
             <div class="nav-account">
                 {% if current_user %}
@@ -41,7 +40,7 @@
     </main>
 
     <footer class="footer">
-        <span>FakeNgin · 谣言检测平台</span>
+        <span>FakeNgin · 消息风险分析平台</span>
     </footer>
 
     {% block scripts %}{% endblock %}
