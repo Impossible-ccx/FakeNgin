@@ -74,7 +74,7 @@ def _csv_export(record):
         "final_level", "final_label", "decision_method", "mean_score",
         "warning", "fallback_reason", "votes_low", "votes_medium", "votes_high", "has_failures",
         "selected_count", "success_count", "agreement_count", "majority_required",
-        "total_elapsed_seconds", "model_id", "model_name", "status", "score",
+        "total_elapsed_seconds", "model_id", "model_name", "source", "source_label", "status", "score",
         "level", "label", "reason", "error", "elapsed_seconds",
     ])
     common = [
@@ -87,7 +87,8 @@ def _csv_export(record):
     ]
     for member in result["members"]:
         values = common + [
-            member["id"], member["display_name"], member["status"], member["score"],
+            member["id"], member["display_name"], member.get("source", ""), member.get("source_label", ""),
+            member["status"], member["score"],
             member["level"], member["label"], member["reason"], member["error"],
             member["elapsed_seconds"],
         ]
@@ -124,6 +125,7 @@ def _text_export(record):
         lines.extend([
             "",
             "{}. {} ({})".format(index, member["display_name"], member["id"]),
+            "调用来源：" + (member.get("source_label") or "未记录"),
             "状态：{} / {}".format(member["status"], member["label"]),
             "风险分：{}".format("—" if member["score"] is None else str(member["score"]) + " / 100"),
             "耗时：{} 秒".format(member["elapsed_seconds"]),

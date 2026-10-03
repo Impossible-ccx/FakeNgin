@@ -157,6 +157,19 @@
 .risk-model-list { display: grid; gap: 9px; }
 .risk-model { display: flex; align-items: center; gap: 10px; padding: 13px; border: 1px solid var(--risk-line); border-radius: 10px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
 .risk-model > input { order:3; margin:0 0 0 2px; }
+.risk-model-choice { display:flex; align-items:center; gap:10px; width:100%; min-width:0; cursor:pointer; }
+.risk-model-choice > input { order:3; margin:0 0 0 2px; }
+.risk-model-with-source { display:block; cursor:default; }
+.risk-source-control { margin-top:13px; padding-top:12px; border-top:1px solid #e0e8f4; }
+.risk-source-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; color:#647e9f; font-size:10px; font-weight:600; }
+.risk-source-heading > span { color:#91a3ba; font-size:9px; font-weight:400; }
+.risk-source-control select { display:block; width:100%; max-width:100%; min-width:0; padding:9px 10px; border:1px solid #ccddf0; border-radius:7px; background:#fff; color:#55769d; font:inherit; font-size:11px; cursor:pointer; }
+.risk-source-control select:hover { border-color:#98b7dd; }
+.risk-source-control select:focus-visible { outline:3px solid #74a0ed; outline-offset:3px; }
+.risk-source-control select:disabled { opacity:.65; cursor:wait; }
+.risk-source-help { margin:8px 0 0; color:#889db5; font-size:10px; line-height:1.8; }
+.risk-member-source { display:inline-flex; align-items:center; align-self:flex-start; gap:7px; margin:10px 0 0; padding:3px 7px; border:1px solid #e0e9f3; border-radius:5px; background:#f7fafd; color:#718ead; font-size:10px; }
+.risk-member-source > span { color:#9babbd; }
 .risk-model:hover { border-color: #aabce3; }
 .risk-model:has(input:checked),
 .risk-model.risk-selected { border-color: #799dee; background: #f8faff; }
@@ -325,6 +338,8 @@
 .risk-live-member[data-status="ok"] .risk-live-status { color:#619c82; }
 .risk-live-member[data-status="error"] .risk-live-status { color:#b5897b; }
 .risk-live-score { display:block; margin:8px 0; color:#5479a5; font-size:26px; font-weight:550; font-variant-numeric:tabular-nums; }
+.risk-live-source { display:inline-flex; align-items:center; max-width:100%; margin:0 0 8px; padding:3px 7px; border:1px solid #dfE8f4; border-radius:5px; background:#f3f7fc; color:#839ab7; font-size:9px; line-height:1.5; overflow-wrap:anywhere; }
+.risk-live-source[hidden] { display:none; }
 .risk-live-reason { margin:9px 0 0; color:#8399b2; font-size:11px; line-height:1.85; white-space:pre-wrap; overflow-wrap:anywhere; }
 .risk-live-timer { color:#8a9fba; font-size:11px; font-variant-numeric:tabular-nums; }
 .history-toolbar { display:flex; align-items:center; justify-content:space-between; gap:25px; margin:29px 0 20px; }

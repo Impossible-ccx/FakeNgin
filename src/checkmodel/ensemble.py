@@ -9,6 +9,8 @@ from .base import CheckError, RiskAbstention
 
 
 MAX_MESSAGE_LENGTH = 6000
+DEEPSEEK_SOURCES = ("cloud", "local")
+_SOURCE_LABELS = {"cloud": "云端 API", "local": "本地 Ollama"}
 RISK_MODELS = (
     {
         "id": "qwen2.5_7b",
@@ -35,8 +37,9 @@ _LEVEL_LABELS = {
 }
 
 
-def get_risk_models():
+def get_risk_models(deepseek_source=None):
     """始终列出三个正式风险模型，并标明当前是否可用。"""
+    _validate_deepseek_source(deepseek_source)
     available_models = {model["id"]: model for model in checkmodel.get_models()}
     models = []
     for model in RISK_MODELS:
@@ -45,11 +48,27 @@ def get_risk_models():
         for field in ("display_name", "description"):
             if isinstance(configured.get(field), str) and configured[field].strip():
                 metadata[field] = configured[field]
+        if model["id"] == "deepseek_r1":
+            sources = checkmodel.get_model_sources("deepseek_r1")
+            default_source = next((item["source"] for item in sources if item["available"]), "cloud")
+            source = deepseek_source or default_source
+            selected_source = next(item for item in sources if item["source"] == source)
+            metadata.update(
+                sources=sources, default_source=default_source, source=source,
+                source_label=selected_source["source_label"],
+                display_name=selected_source["display_name"],
+                description=selected_source["description"], available=selected_source["available"],
+            )
         models.append(metadata)
     return models
 
 
-def validate_risk_request(message, model_ids, mode="vote"):
+def _validate_deepseek_source(deepseek_source):
+    if deepseek_source is not None and deepseek_source not in DEEPSEEK_SOURCES:
+        raise ValueError("请选择有效的 DeepSeek 来源：云端 API 或本地 Ollama")
+
+
+def validate_risk_request(message, model_ids, mode="vote", deepseek_source=None):
     """在启动推理前验证请求，返回规范化消息和选定模型列表。"""
     if not isinstance(message, str) or not message.strip():
         raise ValueError("请输入消息内容")
@@ -58,6 +77,7 @@ def validate_risk_request(message, model_ids, mode="vote"):
         raise ValueError("消息内容不能超过 {} 个字符".format(MAX_MESSAGE_LENGTH))
     if mode not in ("vote", "single"):
         raise ValueError("请选择有效的检测模式")
+    _validate_deepseek_source(deepseek_source)
     if not isinstance(model_ids, (list, tuple)):
         raise ValueError("请选择检测模型")
 
@@ -94,11 +114,13 @@ def _validate_output(output):
     return score, _risk_level(score), reason.strip()
 
 
-def _check_member(message, model_id, resolved=None):
+def _check_member(message, model_id, resolved=None, source=None, display_name=None):
     started = perf_counter()
     member = {
         "id": model_id,
-        "display_name": _MODEL_BY_ID[model_id]["display_name"],
+        "display_name": display_name or _MODEL_BY_ID[model_id]["display_name"],
+        "source": source or "local",
+        "source_label": _SOURCE_LABELS.get(source or "local", "本地 Ollama"),
         "status": "error",
         "score": None,
         "level": None,
@@ -110,15 +132,21 @@ def _check_member(message, model_id, resolved=None):
     try:
         try:
             if resolved is None:
-                model = checkmodel.get_model(model_id)
+                model = checkmodel.get_model(model_id, source=source) if model_id == "deepseek_r1" and source else checkmodel.get_model(model_id)
             else:
                 model, lookup_error = resolved
                 if lookup_error is not None:
                     raise lookup_error
         except KeyError:
+            if model_id == "deepseek_r1" and source == "cloud":
+                error = "所选 DeepSeek 云端 API 当前不可用，请检查 API 密钥配置"
+            elif model_id == "deepseek_r1" and source == "local":
+                error = "所选 DeepSeek 本地 Ollama 当前不可用，请检查本地服务和模型权重"
+            else:
+                error = "该模型当前不可用，请检查本地服务和模型权重"
             member.update(
                 status="unavailable", label="模型不可用",
-                error="该模型当前不可用，请检查本地服务和模型权重",
+                error=error,
             )
             return member
         display_name = getattr(model, "display_name", None)
@@ -206,30 +234,39 @@ def _aggregate_result(members, selected, mode, started):
     }
 
 
-def iter_risk_check(message, model_ids, mode="vote"):
+def iter_risk_check(message, model_ids, mode="vote", deepseek_source=None):
     """逐个模型发出真实开始、完成事件，最后给出与同步检测相同的聚合结果。"""
-    message, selected = validate_risk_request(message, model_ids, mode)
+    message, selected = validate_risk_request(message, model_ids, mode, deepseek_source)
     started = perf_counter()
     members = []
     for model_id in selected:
         model = None
         lookup_error = None
         try:
-            model = checkmodel.get_model(model_id)
+            if model_id == "deepseek_r1" and deepseek_source is not None:
+                model = checkmodel.get_model(model_id, source=deepseek_source)
+            else:
+                model = checkmodel.get_model(model_id)
         except Exception as exc:
             lookup_error = exc
+        source = deepseek_source if model_id == "deepseek_r1" else "local"
+        if source is None:
+            actual_source = getattr(model, "source", None)
+            source = actual_source if isinstance(actual_source, str) and actual_source in DEEPSEEK_SOURCES else "cloud"
         display_name = getattr(model, "display_name", None)
         if not isinstance(display_name, str) or not display_name.strip():
-            display_name = _MODEL_BY_ID[model_id]["display_name"]
+            display_name = "DeepSeek（云端 API）" if model_id == "deepseek_r1" and source == "cloud" else _MODEL_BY_ID[model_id]["display_name"]
         yield {
             "type": "member_start",
             "member": {
                 "id": model_id,
                 "display_name": display_name,
+                "source": source,
+                "source_label": _SOURCE_LABELS[source],
                 "status": "running",
             },
         }
-        member = _check_member(message, model_id, resolved=(model, lookup_error))
+        member = _check_member(message, model_id, resolved=(model, lookup_error), source=source, display_name=display_name)
         members.append(member)
         yield {"type": "member_complete", "member": member}
     yield {
@@ -238,9 +275,9 @@ def iter_risk_check(message, model_ids, mode="vote"):
     }
 
 
-def run_risk_check(message, model_ids, mode="vote"):
+def run_risk_check(message, model_ids, mode="vote", deepseek_source=None):
     """同步调用同一检测流程，保留既有函数签名和完整结果字段。"""
-    for event in iter_risk_check(message, model_ids, mode):
+    for event in iter_risk_check(message, model_ids, mode, deepseek_source):
         if event["type"] == "complete":
             return event["result"]
     raise RuntimeError("风险检测未产生完整结果")

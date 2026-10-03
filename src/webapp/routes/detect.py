@@ -5,7 +5,7 @@ import json
 from flask import Response, current_app, jsonify, render_template, request, stream_with_context, url_for
 
 from checkmodel.ensemble import (
-    MAX_MESSAGE_LENGTH, RISK_MODELS, get_risk_models, iter_risk_check,
+    DEEPSEEK_SOURCES, MAX_MESSAGE_LENGTH, RISK_MODELS, get_risk_models, iter_risk_check,
     run_risk_check, validate_risk_request,
 )
 from .. import reports
@@ -21,7 +21,10 @@ def _save_result(message, model_ids, result):
 
 
 def _context(form=None):
-    models = get_risk_models()
+    requested_source = form.get("deepseek_source") if form is not None else None
+    source_error = requested_source is not None and requested_source not in DEEPSEEK_SOURCES
+    models = get_risk_models(None if source_error else requested_source)
+    deepseek = next(model for model in models if model["id"] == "deepseek_r1")
     context = {
         "models": models,
         "mode": "vote",
@@ -32,6 +35,8 @@ def _context(form=None):
         "record": None,
         "history_error": None,
         "max_message_length": MAX_MESSAGE_LENGTH,
+        "deepseek_source": deepseek["source"],
+        "response_status": 200,
     }
     if form is None:
         return context
@@ -40,8 +45,11 @@ def _context(form=None):
     mode = form.get("mode", "vote")
     selected_ids = form.getlist("models")
     context.update(message=message, mode=mode, selected_ids=selected_ids)
+    if source_error:
+        context.update(error="请选择有效的 DeepSeek 来源：云端 API 或本地 Ollama", response_status=400)
+        return context
     try:
-        context["result"] = run_risk_check(message, selected_ids, mode=mode)
+        context["result"] = run_risk_check(message, selected_ids, mode=mode, deepseek_source=requested_source)
     except ValueError as exc:
         context["error"] = str(exc)
     else:
@@ -54,36 +62,38 @@ def _context(form=None):
 @main.route("/detect", methods=["GET", "POST"])
 def detect():
     context = _context(request.form if request.method == "POST" else None)
-    return render_template("detect.html", **context)
+    return render_template("detect.html", **context), context["response_status"]
 
 
 @main.route("/detect/check", methods=["POST"])
 def detect_check():
     """返回结果片段；无 JavaScript 的表单可回退到 /detect。"""
-    return render_template("_detect_result.html", **_context(request.form))
+    context = _context(request.form)
+    return render_template("_detect_result.html", **context), context["response_status"]
 
 
 @main.route("/detect/stream", methods=["POST"])
 def detect_stream():
     """按真实推理完成情况发送 NDJSON；输入错误在开始流式响应前返回。"""
     mode = request.form.get("mode", "vote")
+    deepseek_source = request.form.get("deepseek_source")
     try:
         message, model_ids = validate_risk_request(
-            request.form.get("message", ""), request.form.getlist("models"), mode,
+            request.form.get("message", ""), request.form.getlist("models"), mode, deepseek_source,
         )
     except ValueError as exc:
         return jsonify(type="error", message=str(exc)), 400
 
     def events():
         try:
-            for event in iter_risk_check(message, model_ids, mode):
+            for event in iter_risk_check(message, model_ids, mode, deepseek_source):
                 if event["type"] == "complete":
                     result = event["result"]
                     record, history_error = _save_result(message, model_ids, result)
                     html = render_template(
                         "_detect_result.html", result=result, record=record,
                         error=None, history_error=history_error, message=message,
-                        mode=mode, selected_ids=model_ids,
+                        mode=mode, selected_ids=model_ids, deepseek_source=deepseek_source,
                     )
                     event = {
                         "type": "complete",

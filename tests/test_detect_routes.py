@@ -51,6 +51,16 @@ class DetectRouteTests(unittest.TestCase):
             model_id: Mock(check=Mock(return_value=(80, "需要核实具体消息来源。")))
             for model_id in RISK_IDS
         }
+        self.model_instances["deepseek_r1"].source = "local"
+        self.model_instances["deepseek_r1"].source_label = "本地 Ollama"
+        self.deepseek_sources = [
+            {"source": "cloud", "source_label": "云端 API", "display_name": "DeepSeek Flash（云端 API）",
+             "description": "Cloud risk model", "available": False},
+            {"source": "local", "source_label": "本地 Ollama", "display_name": RISK_MODELS[1]["display_name"],
+             "description": "Local risk model", "available": True},
+        ]
+        self.deepseek_instances = {"local": self.model_instances["deepseek_r1"]}
+        self.get_sources = self.stack.enter_context(patch.object(checkmodel, "get_model_sources", side_effect=self.lookup_sources))
         self.get_model = self.stack.enter_context(patch.object(checkmodel, "get_model", side_effect=self.lookup_model))
         # Tests must never load real API credentials from the workspace .env.
         self.stack.enter_context(patch("webapp.load_dotenv"))
@@ -65,7 +75,21 @@ class DetectRouteTests(unittest.TestCase):
     def capture_template(self, sender, template, context, **extra):
         self.contexts.append((template.name, context))
 
-    def lookup_model(self, model_id):
+    def lookup_sources(self, model_id):
+        if model_id != "deepseek_r1":
+            return []
+        listed = any(model["id"] == model_id for model in self.available_models.return_value)
+        return [{**item, "available": item["available"] and listed} for item in self.deepseek_sources]
+
+    def lookup_model(self, model_id, source=None):
+        if model_id == "deepseek_r1":
+            sources = self.lookup_sources(model_id)
+            selected = source or next((item["source"] for item in sources if item["available"]), "cloud")
+            if not any(item["source"] == selected and item["available"] for item in sources):
+                raise KeyError((model_id, selected))
+            return self.deepseek_instances[selected]
+        if source is not None:
+            raise KeyError((model_id, source))
         return self.model_instances[model_id]
 
     def database_snapshot(self):
@@ -75,8 +99,10 @@ class DetectRouteTests(unittest.TestCase):
         for model_id, score in zip(RISK_IDS, scores):
             self.model_instances[model_id].check.return_value = (score, "{} 的分析理由".format(model_id))
 
-    def submit(self, endpoint="/detect/check", *, mode="vote", message="请评估这条消息的传播风险。", models=None):
+    def submit(self, endpoint="/detect/check", *, mode="vote", message="请评估这条消息的传播风险。", models=None, deepseek_source=None):
         form = MultiDict([("mode", mode), ("message", message)])
+        if deepseek_source is not None:
+            form.add("deepseek_source", deepseek_source)
         for model_id in RISK_IDS if models is None else models:
             form.add("models", model_id)
         response = self.client.post(endpoint, data=form)
@@ -95,7 +121,7 @@ class DetectRouteTests(unittest.TestCase):
         self.assertEqual({model["id"] for model in context["models"]}, set(RISK_IDS))
         self.assertTrue(all(not model["available"] for model in context["models"]))
         html = response.get_data(as_text=True)
-        for model in RISK_MODELS:
+        for model in context["models"]:
             self.assertIn(model["display_name"], html)
         self.assertRegex(html, "不可用|未就绪")
         self.assertIsNone(context["result"])

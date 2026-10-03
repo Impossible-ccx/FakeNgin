@@ -131,14 +131,17 @@ class DeepSeekAPITests(unittest.TestCase):
                 self.assertNotIn("PRIVATE_RESPONSE_BODY", str(caught.exception) + stderr.getvalue())
                 self.opener.open.assert_called_once()
 
-    def prepare_factory(self, key):
+    def prepare_factory(self, key, local_available=True):
         self.stack.enter_context(patch.dict(os.environ, {"DEEPSEEK_API_KEY": key}))
-        self.stack.enter_context(patch.multiple(checkmodel, _instances={}, _available={}, _loaded=False))
+        self.stack.enter_context(patch.multiple(
+            checkmodel, _instances={}, _available={}, _loaded=False,
+            _source_instances={}, _source_metadata={},
+        ))
         for module_name in checkmodel.MODEL_MODULES:
             model_class = checkmodel._load_module_class(module_name)
             if model_class is deepseek_api.DeepSeekAPI:
                 continue
-            self.stack.enter_context(patch.object(model_class, "detect", return_value=model_class is Ollama_DeepSeek))
+            self.stack.enter_context(patch.object(model_class, "detect", return_value=model_class is Ollama_DeepSeek and local_available))
             self.stack.enter_context(patch.object(model_class, "initialize"))
 
     def test_factory_prefers_one_cloud_instance_and_keeps_dynamic_name_in_results(self):
@@ -150,9 +153,19 @@ class DeepSeekAPITests(unittest.TestCase):
         self.assertIsInstance(instance, deepseek_api.DeepSeekAPI)
         self.assertEqual(matches[0]["display_name"], instance.display_name)
         self.assertIn("deepseek-flash", instance.display_name.lower())
+        self.assertIsInstance(checkmodel.get_model("deepseek_r1", source="cloud"), deepseek_api.DeepSeekAPI)
+        self.assertIsInstance(checkmodel.get_model("deepseek_r1", source="local"), Ollama_DeepSeek)
+        sources = checkmodel.get_model_sources("deepseek_r1")
+        self.assertEqual({item["source"] for item in sources}, {"cloud", "local"})
+        self.assertTrue(all(item["available"] for item in sources))
+        self.assertNotIn(FAKE_KEY, json.dumps(sources, ensure_ascii=False))
         risk_model = next(model for model in get_risk_models() if model["id"] == "deepseek_r1")
         self.assertEqual(risk_model["display_name"], instance.display_name)
         self.assertTrue(risk_model["available"])
+        self.assertEqual(risk_model["default_source"], "cloud")
+        local_metadata = next(model for model in get_risk_models(deepseek_source="local") if model["id"] == "deepseek_r1")
+        self.assertEqual(local_metadata["source"], "local")
+        self.assertEqual(local_metadata["display_name"], Ollama_DeepSeek.display_name)
         self.respond()
         result = run_risk_check("传播风险测试", ["deepseek_r1"], mode="single")
         self.assertEqual(result["members"][0]["display_name"], instance.display_name)
@@ -166,6 +179,30 @@ class DeepSeekAPITests(unittest.TestCase):
         instance = checkmodel.get_model("deepseek_r1")
         self.assertIsInstance(instance, Ollama_DeepSeek)
         self.assertEqual(matches[0]["display_name"], instance.display_name)
+        with self.assertRaises(KeyError):
+            checkmodel.get_model("deepseek_r1", source="cloud")
+        result = run_risk_check("显式云端选择", ["deepseek_r1"], mode="single", deepseek_source="cloud")
+        self.assertEqual(result["members"][0]["status"], "unavailable")
+        self.assertEqual(result["members"][0]["source"], "cloud")
+        self.assertIsNone(result["members"][0]["score"])
+        self.opener.open.assert_not_called()
+
+    def test_unavailable_explicit_local_does_not_use_available_cloud(self):
+        self.prepare_factory(FAKE_KEY, local_available=False)
+        self.assertIsInstance(checkmodel.get_model("deepseek_r1"), deepseek_api.DeepSeekAPI)
+        with self.assertRaises(KeyError):
+            checkmodel.get_model("deepseek_r1", source="local")
+        result = run_risk_check("显式本地选择", ["deepseek_r1"], mode="single", deepseek_source="local")
+        self.assertEqual(result["members"][0]["status"], "unavailable")
+        self.assertEqual(result["members"][0]["source"], "local")
+        self.assertIsNone(result["members"][0]["score"])
+        self.opener.open.assert_not_called()
+
+    def test_invalid_source_and_source_for_other_model_are_rejected(self):
+        self.prepare_factory(FAKE_KEY)
+        for model_id, source in (("deepseek_r1", "both"), ("qwen2.5_7b", "cloud")):
+            with self.subTest(model_id=model_id, source=source), self.assertRaises(KeyError):
+                checkmodel.get_model(model_id, source=source)
         self.opener.open.assert_not_called()
 
 

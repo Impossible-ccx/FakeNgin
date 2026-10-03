@@ -29,6 +29,7 @@
         {% for member in result.members %}
         <article class="risk-member risk-level-{{ member.level or 'uncertain' }}">
             <header class="risk-member-heading">{{ model_mark(member.id) }}<h4>{{ member.display_name }}</h4><span class="risk-member-status risk-status-{{ member.status }}">{{ status_labels.get(member.status,'未知状态') }}</span></header>
+            {% if member.get('source_label') %}<p class="risk-member-source"><span>运行来源</span>{{ member.source_label }}</p>{% endif %}
             <div class="risk-member-summary">{% if member.score is not none %}<div class="risk-member-score"><strong>{{ '%.1f' | format(member.score) }}</strong><span> / 100</span></div>{% else %}<span class="risk-missing-score">未获得有效分数</span>{% endif %}<span class="risk-level-label">{{ member.label }}</span></div>
             {% if member.score is not none %}<progress class="risk-score-track" value="{{ member.score }}" max="100" aria-label="{{ member.display_name }} 风险评分 {{ member.score }}，满分 100"></progress><div class="risk-score-scale"><span>0</span><span>40</span><span>70</span><span>100</span></div>{% endif %}
             {% if member.reason %}{% if member.reason | length > 180 %}<details class="risk-reason-details"><summary>展开完整判断理由 <span aria-hidden="true">＋</span></summary><p class="risk-member-reason">{{ member.reason }}</p></details>{% else %}<p class="risk-member-reason">{{ member.reason }}</p>{% endif %}{% endif %}

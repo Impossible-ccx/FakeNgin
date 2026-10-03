@@ -24,13 +24,16 @@ class HistoryStreamTests(unittest.TestCase):
     # Reuse isolation and model stubs without inheriting unrelated test methods.
     setUp = detect_test_helpers.DetectRouteTests.setUp
     capture_template = detect_test_helpers.DetectRouteTests.capture_template
+    lookup_sources = detect_test_helpers.DetectRouteTests.lookup_sources
     lookup_model = detect_test_helpers.DetectRouteTests.lookup_model
     database_snapshot = detect_test_helpers.DetectRouteTests.database_snapshot
     configure_scores = detect_test_helpers.DetectRouteTests.configure_scores
     submit = detect_test_helpers.DetectRouteTests.submit
 
-    def form(self, message="待检测的中文消息。", models=None, mode="vote"):
+    def form(self, message="待检测的中文消息。", models=None, mode="vote", deepseek_source=None):
         values = MultiDict([("message", message), ("mode", mode)])
+        if deepseek_source is not None:
+            values.add("deepseek_source", deepseek_source)
         for model_id in RISK_IDS if models is None else models:
             values.add("models", model_id)
         return values

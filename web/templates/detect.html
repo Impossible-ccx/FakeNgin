@@ -6,7 +6,7 @@
 <div class="risk-workspace">
     <header class="dash-hero dash-hero-compact">
         <div><p class="dash-kicker">ANALYSIS / 检测工作台</p><h1>让每个模型，说出它的判断。</h1><p>输入消息，选择分析方式。逐模型查看运行进度，生成完整检测报告。</p></div>
-        <div class="dash-hero-aside"><span class="dash-hero-status"><i></i> 模型服务</span><strong>{{ available_models | length }}<small> / {{ models | length }}</small></strong><span>当前可用模型</span></div>
+        <div class="dash-hero-aside"><span class="dash-hero-status"><i></i> 模型服务</span><strong><span id="risk-available-count">{{ available_models | length }}</span><small> / {{ models | length }}</small></strong><span>当前可用模型</span></div>
     </header>
     <div class="workspace-section-title"><span class="section-number">01</span><h2>配置本次分析</h2><span class="section-line"></span><span>输入 · 选择 · 检测</span></div>
     <form id="detect-form" class="risk-form" method="post" action="{{ url_for('main.detect') }}"
@@ -25,14 +25,32 @@
                 </div>
             </fieldset>
             <fieldset class="risk-fieldset risk-model-fieldset" aria-describedby="risk-selection-help">
-                <legend class="risk-model-legend">参与模型 <span>{{ available_models | length }} / {{ models | length }} 可用</span></legend>
+                <legend class="risk-model-legend">参与模型 <span><span id="risk-model-available-count">{{ available_models | length }}</span> / {{ models | length }} 可用</span></legend>
                 <div class="risk-model-list">
                     {% for m in models %}
-                    <label class="risk-model {% if not m.available %}risk-model-unavailable{% endif %}">
-                        <input type="checkbox" name="models" value="{{ m.id }}" data-available="{{ 'true' if m.available else 'false' }}" {% if m.id in selected_ids %}checked{% endif %}>
-                        {{ model_mark(m.id) }}
-                        <span class="risk-model-copy"><span class="risk-model-title"><strong>{{ m.display_name }}</strong><span class="risk-availability {% if m.available %}risk-availability-ready{% endif %}">{% if m.available %}已连接{% else %}未就绪{% endif %}</span></span><span class="risk-model-description">{{ m.description }}</span></span>
-                    </label>
+                    {% set sources = m.get('sources', []) if m.id == 'deepseek_r1' else [] %}
+                    {% set selected_source = deepseek_source | default(m.get('default_source') or m.get('source') or 'cloud', true) %}
+                    {% set source_matches = sources | selectattr('source', 'equalto', selected_source) | list %}
+                    {% set shown_model = source_matches[0] if source_matches else m %}
+                    <div class="risk-model {% if sources %}risk-model-with-source{% endif %} {% if not shown_model.available %}risk-model-unavailable{% endif %}">
+                        <label class="risk-model-choice">
+                            <input type="checkbox" name="models" value="{{ m.id }}" data-available="{{ 'true' if shown_model.available else 'false' }}" {% if m.id in selected_ids %}checked{% endif %}>
+                            {{ model_mark(m.id) }}
+                            <span class="risk-model-copy"><span class="risk-model-title"><strong>{{ shown_model.display_name }}</strong><span class="risk-availability {% if shown_model.available %}risk-availability-ready{% endif %}">{% if shown_model.available %}已连接{% else %}未就绪{% endif %}</span></span><span class="risk-model-description">{{ shown_model.description }}</span></span>
+                        </label>
+                        {% if sources %}
+                        <div class="risk-source-control">
+                            <label class="risk-source-heading" for="deepseek-source">运行来源 <span>DeepSeek 仅占一票</span></label>
+                            <select id="deepseek-source" name="deepseek_source" aria-describedby="deepseek-source-help">
+                                {% for source in sources %}
+                                {% set source_label = '云端 API' if source.source == 'cloud' else '本地 Ollama' %}
+                                <option value="{{ source.source }}" data-display-name="{{ source.display_name }}" data-description="{{ source.description }}" data-available="{{ 'true' if source.available else 'false' }}" data-source-label="{{ source_label }}" {% if source.source == selected_source %}selected{% endif %}>{{ source_label }} · {% if source.available %}已就绪{% else %}未就绪{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                            <p id="deepseek-source-help" class="risk-source-help" aria-live="polite">{% if shown_model.available %}使用{% if selected_source == 'cloud' %}云端 API{% else %}本地 Ollama{% endif %}完成本次 DeepSeek 分析。{% elif selected_source == 'cloud' %}云端 API 尚未配置，请设置 DeepSeek API Key。{% else %}本地 Ollama 尚未就绪，请启动已配置的模型服务。{% endif %}</p>
+                        </div>
+                        {% endif %}
+                    </div>
                     {% else %}<p class="risk-empty-models">尚未配置可用模型。</p>{% endfor %}
                 </div>
                 <p id="risk-selection-help" class="risk-selection-help" aria-live="polite">{% if mode == 'single' %}请选择 1 个可用模型。{% else %}选择 2–3 个模型，至少一个可用；优先多数票，无多数时使用有效分数均值。{% endif %}</p>

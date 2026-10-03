@@ -261,7 +261,14 @@ class RiskVotingTests(unittest.TestCase):
 
     def test_model_listing_includes_unavailable_and_excludes_other_models(self):
         available = [{"id": MODEL_IDS[0]}, {"id": "template_model"}, {"id": "roberta_rumor"}]
-        with patch("checkmodel.ensemble.checkmodel.get_models", return_value=available):
+        sources = [
+            {"source": source, "source_label": label, "display_name": "DeepSeek " + label,
+             "description": "Risk model source", "available": False}
+            for source, label in (("cloud", "云端 API"), ("local", "本地 Ollama"))
+        ]
+        with patch("checkmodel.ensemble.checkmodel.get_models", return_value=available), patch(
+            "checkmodel.ensemble.checkmodel.get_model_sources", return_value=sources,
+        ):
             models = get_risk_models()
         self.assertEqual([model["id"] for model in models], MODEL_IDS)
         self.assertEqual([model["available"] for model in models], [True, False, False])
