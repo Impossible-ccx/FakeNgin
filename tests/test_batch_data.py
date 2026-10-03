@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 import threading
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -12,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from markupsafe import escape
 from werkzeug.datastructures import MultiDict
-from webapp import batches, create_app, newsdata, reports
+from webapp import api_credentials, batches, create_app, newsdata, reports
 
 import test_detect_routes as helpers
 
@@ -238,7 +239,8 @@ class BatchDataTests(unittest.TestCase):
         self.assertEqual(result["selected_count"], 2)
         self.assertEqual(result["success_count"], 1)
         self.assertEqual(result["decision_method"], "mean_fallback")
-        self.assertEqual(result["members"][1]["status"], "unavailable")
+        self.assertEqual(result["members"][1]["status"], "error")
+        self.assertEqual(result["members"][1]["credential_mode"], "missing")
         self.assertEqual(result["members"][1]["source"], "cloud")
         self.deepseek_instances["local"].check.assert_not_called()
 
@@ -267,8 +269,14 @@ class BatchDataTests(unittest.TestCase):
         cloud = Mock(
             check=Mock(return_value=(12, "云端说明")),
             display_name="DeepSeek Flash（云端 API）", source="cloud", source_label="云端 API",
+            description="个人云端风险模型", model_name="deepseek-flash", detect=Mock(return_value=True),
+            credential_mode="personal",
         )
-        self.deepseek_instances["cloud"] = cloud
+        token = "test-only-personal-batch-cloud-token"
+        self.stack.enter_context(patch.object(api_credentials, "_vault", {
+            token: {"model": cloud, "expires_at": time.time() + 3600},
+        }))
+        self.client.set_cookie(api_credentials.COOKIE_NAME, token)
         created = self.create_job(refs, deepseek_source="cloud")
         job = self.run_job(created["job_id"])
         result = job["items"][0]["result"]
@@ -276,7 +284,8 @@ class BatchDataTests(unittest.TestCase):
         self.assertEqual([member["id"] for member in result["members"]], helpers.RISK_IDS)
         self.assertEqual(result["members"][1]["source"], "cloud")
         self.assertEqual(result["members"][1]["score"], 12)
-        self.get_model.assert_any_call("deepseek_r1", source="cloud")
+        self.assertEqual(result["members"][1]["credential_mode"], "personal")
+        self.assertNotIn("deepseek_r1", [call.args[0] for call in self.get_model.call_args_list])
         cloud.check.assert_called_once()
         self.deepseek_instances["local"].check.assert_not_called()
 

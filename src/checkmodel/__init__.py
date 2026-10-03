@@ -77,6 +77,9 @@ def _ensure_loaded():
             metadata["available"] = available
             if instance is not None:
                 metadata.update(display_name=instance.display_name, description=instance.description)
+                model_name = getattr(instance, "model_name", None)
+                if isinstance(model_name, str) and model_name:
+                    metadata["model_name"] = model_name
             _source_metadata[(model_id, spec["source"])] = metadata
             if available:
                 instance.source = spec["source"]

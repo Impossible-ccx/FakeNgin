@@ -76,6 +76,8 @@
         var option = source.options[source.selectedIndex];
         if (!input || !option) return;
         var card = input.closest('.risk-model');
+        var credentials = card.querySelector('[data-cloud-credentials]');
+        if (credentials) credentials.hidden = source.value !== 'cloud';
         var ready = option.getAttribute('data-available') === 'true';
         input.setAttribute('data-available', String(ready));
         card.classList.toggle('risk-model-unavailable', !ready);
@@ -85,12 +87,12 @@
         if (title) title.textContent = option.getAttribute('data-display-name') || 'DeepSeek';
         if (description) description.textContent = option.getAttribute('data-description') || '';
         if (badge) {
-            badge.textContent = ready ? '已连接' : '未就绪';
+            badge.textContent = ready ? (source.value === 'cloud' ? '已配置' : '已连接') : '未就绪';
             badge.classList.toggle('risk-availability-ready', ready);
         }
         var help = document.getElementById('batch-deepseek-help');
         if (help) help.textContent = ready ? '使用' + (option.getAttribute('data-source-label') || '所选来源') + '完成 DeepSeek 分析，每条消息只计一票。' :
-            source.value === 'cloud' ? '云端 API 尚未配置，请在服务端设置 DeepSeek API Key。' : '本地 Ollama 尚未就绪，请启动服务并确认已有 DeepSeek 模型。';
+            source.value === 'cloud' ? '云端 API 尚未就绪，请在“API 设置”中配置自己的 DeepSeek Key。' : '本地 Ollama 尚未就绪，请启动服务并确认已有 DeepSeek 模型。';
     }
     function updateSelection(changed) {
         if (mode() === 'single') {

@@ -171,7 +171,8 @@ class DetectRouteTests(unittest.TestCase):
         self.assertIsNone(result["mean_score"])
         self.assertEqual(result["selected_count"], 1)
         self.assertEqual(result["members"][0]["score"], 0)
-        self.get_model.assert_called_once_with(RISK_IDS[1])
+        # A browser without personal credentials can only resolve the local source.
+        self.get_model.assert_called_once_with(RISK_IDS[1], source="local")
         self.assertIn("暂未发现明显风险表达。", response.get_data(as_text=True))
 
     def test_all_three_levels_fall_back_to_mean_and_explain_disagreement(self):

@@ -65,6 +65,36 @@ class DeepSeekAPITests(unittest.TestCase):
                     model.check("测试")
         self.opener.open.assert_not_called()
 
+    def test_explicit_key_survives_initialize_without_mutating_environment(self):
+        visitor_key = "sk-test-only-explicit-visitor-credential"
+        self.respond()
+        model = deepseek_api.DeepSeekAPI(api_key=visitor_key, model_name="deepseek-flash")
+        model.initialize()
+        self.assertEqual(model.check("访客消息")[0], 72)
+        request = self.opener.open.call_args.args[0]
+        self.assertEqual(request.get_header("Authorization"), "Bearer " + visitor_key)
+        self.assertEqual(os.environ["DEEPSEEK_API_KEY"], FAKE_KEY)
+
+    def test_explicit_empty_key_never_uses_environment_key(self):
+        model = deepseek_api.DeepSeekAPI(api_key="")
+        model.initialize()
+        self.assertFalse(model.detect())
+        with self.assertRaises(CheckError):
+            model.check("无凭据消息")
+        self.opener.open.assert_not_called()
+
+    def test_provider_echoed_key_is_redacted_from_reason_and_abstention(self):
+        visitor_key = "sk-test-only-provider-echo-marker"
+        model = deepseek_api.DeepSeekAPI(api_key=visitor_key)
+        self.respond(payload={"risk_score": 24, "reason": "上游错误回显 " + visitor_key})
+        score, reason = model.check("测试消息")
+        self.assertEqual(score, 24)
+        self.assertNotIn(visitor_key, reason)
+        self.respond(payload={"risk_score": None, "reason": "无法判断 " + visitor_key})
+        with self.assertRaises(RiskAbstention) as failure:
+            model.check("测试消息")
+        self.assertNotIn(visitor_key, str(failure.exception))
+
     def test_risk_boundaries_remain_numeric_scores(self):
         for score in (0, 40, 69.99, 70, 100):
             with self.subTest(score=score):

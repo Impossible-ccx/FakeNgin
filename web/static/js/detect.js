@@ -42,18 +42,20 @@
         var description = card.querySelector('.risk-model-description');
         var status = card.querySelector('.risk-availability');
         var help = document.getElementById('deepseek-source-help');
+        var credentials = card.querySelector('[data-cloud-credentials]');
+        if (credentials) credentials.hidden = deepseekSource.value !== 'cloud';
         input.setAttribute('data-available', String(available));
         card.classList.toggle('risk-model-unavailable', !available);
         if (title) title.textContent = option.getAttribute('data-display-name') || 'DeepSeek';
         if (description) description.textContent = option.getAttribute('data-description') || '';
         if (status) {
-            status.textContent = available ? '已连接' : '未就绪';
+            status.textContent = available ? (deepseekSource.value === 'cloud' ? '已配置' : '已连接') : '未就绪';
             status.classList.toggle('risk-availability-ready', available);
         }
         if (help) {
             var sourceLabel = option.getAttribute('data-source-label') || option.textContent;
             help.textContent = available ? '本次使用' + sourceLabel + '，DeepSeek 计为一票。' :
-                deepseekSource.value === 'cloud' ? '云端 API 尚未配置，请在服务端设置 DeepSeek API Key。' :
+                deepseekSource.value === 'cloud' ? '云端 API 尚未就绪，请在“API 设置”中配置自己的 DeepSeek Key。' :
                 '本地 Ollama 尚未就绪，请启动服务并确认已有 DeepSeek 模型。';
         }
     }

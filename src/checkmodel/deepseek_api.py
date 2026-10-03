@@ -44,13 +44,25 @@ class DeepSeekAPI(OllamaModel):
     timeout = 60
     temperature = 0
 
-    def __init__(self):
-        self.initialize()
+    def __init__(self, api_key=None, model_name=None, base_url=None):
+        self.initialize(api_key=api_key, model_name=model_name, base_url=base_url)
 
-    def initialize(self):
-        self._api_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
-        self.model_name = os.getenv("DEEPSEEK_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
-        self.base_url = os.getenv("DEEPSEEK_BASE_URL", DEFAULT_BASE_URL).strip().rstrip("/")
+    def initialize(self, api_key=None, model_name=None, base_url=None):
+        explicit_fields = getattr(self, "_explicit_fields", set())
+        if api_key is None and "api_key" in explicit_fields:
+            api_key = self._api_key
+        if model_name is None and "model_name" in explicit_fields:
+            model_name = self.model_name
+        if base_url is None and "base_url" in explicit_fields:
+            base_url = self.base_url
+        explicit_fields.update(name for name, value in (
+            ("api_key", api_key), ("model_name", model_name), ("base_url", base_url),
+        ) if value is not None)
+        self._explicit_fields = explicit_fields
+        self._api_key = (os.getenv("DEEPSEEK_API_KEY", "") if api_key is None else api_key).strip()
+        self.model_name = (os.getenv("DEEPSEEK_MODEL", DEFAULT_MODEL) if model_name is None else model_name).strip() or DEFAULT_MODEL
+        configured_base = DEFAULT_BASE_URL if api_key is not None else os.getenv("DEEPSEEK_BASE_URL", DEFAULT_BASE_URL)
+        self.base_url = (configured_base if base_url is None else base_url).strip().rstrip("/")
         if not self.base_url:
             self.base_url = DEFAULT_BASE_URL
         parsed = urlsplit(self.base_url)
@@ -58,6 +70,9 @@ class DeepSeekAPI(OllamaModel):
                 or parsed.username or parsed.password or parsed.query or parsed.fragment):
             raise CheckError("DeepSeek API 地址配置无效")
         self.display_name = "DeepSeek · {}（云端 API）".format(self.model_name)
+        self.source = "cloud"
+        self.source_label = "云端 API"
+        self.credential_mode = "default" if api_key is None else "personal"
 
     def detect(self):
         """仅检查密钥是否配置，不发送模型列表或推理探测请求。"""
@@ -72,8 +87,11 @@ class DeepSeekAPI(OllamaModel):
             raise CheckError("尚未配置 DeepSeek API 密钥")
         try:
             # 复用同一提示词及 null、有限值、范围、reason/schema 校验。
-            return self._request(_CloudChatClient(self), message)
-        except (RiskAbstention, CheckError):
+            score, reason = self._request(_CloudChatClient(self), message)
+            return score, reason.replace(self._api_key, "[已隐藏]")
+        except RiskAbstention as exc:
+            raise RiskAbstention(str(exc).replace(self._api_key, "[已隐藏]")) from None
+        except CheckError:
             raise
         except Exception:
             raise CheckError("DeepSeek 响应格式无效，请稍后重试") from None

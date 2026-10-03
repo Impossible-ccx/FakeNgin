@@ -7,13 +7,14 @@ from werkzeug.exceptions import RequestEntityTooLarge
 
 from checkmodel.ensemble import MAX_MESSAGE_LENGTH, get_risk_models
 
-from .. import batches, dataset, newsdata
+from .. import api_credentials, batches, dataset, newsdata
 from . import main
 
 PAGE_SIZE = 20
 
 
 def _context():
+    cloud_model, api_state = api_credentials.resolve_cloud_model()
     page = request.args.get("page", 1, type=int)
     if page < 1:
         page = 1
@@ -39,7 +40,7 @@ def _context():
         (job for job in recent_jobs if job["status"] in batches.ACTIVE_STATUSES), None,
     )
     source = current_job["deepseek_source"] if current_job else None
-    models = get_risk_models(source)
+    models = get_risk_models(source, cloud_model=cloud_model)
     deepseek = next(model for model in models if model["id"] == "deepseek_r1")
     available_ids = [model["id"] for model in models if model["available"]]
     selected_ids = available_ids or ["deepseek_r1"]
@@ -55,6 +56,7 @@ def _context():
         default_selected_ids=current_job["model_ids"] if current_job else selected_ids,
         default_mode=current_job["mode"] if current_job else mode,
         deepseek_source=deepseek["source"],
+        deepseek_api_state=api_state,
         active_job_id=current_job["id"] if current_job else None,
         current_job=current_job,
         recent_jobs=recent_jobs,
@@ -131,7 +133,8 @@ def batch_start():
             model_ids = request.form.getlist("models")
             mode = request.form.get("mode", "vote")
             source = request.form.get("deepseek_source")
-        job = batches.create_batch(rows, model_ids, mode, source)
+        cloud_model, _ = api_credentials.resolve_cloud_model()
+        job = batches.create_batch(rows, model_ids, mode, source, cloud_model=cloud_model)
     except RequestEntityTooLarge:
         return _error("批量请求内容过大", 413)
     except ValueError as exc:

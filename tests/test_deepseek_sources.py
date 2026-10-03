@@ -4,12 +4,13 @@ import csv
 import io
 from pathlib import Path
 import sys
+import time
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from webapp import reports
+from webapp import api_credentials, reports
 
 import test_detect_routes as route_helpers
 import test_history_stream as stream_helpers
@@ -32,9 +33,15 @@ class DeepSeekSourceRouteTests(unittest.TestCase):
         self.cloud_model = Mock(
             check=Mock(return_value=(21, "云端模型的风险说明")),
             display_name=self.deepseek_sources[0]["display_name"],
-            source="cloud", source_label="云端 API",
+            description="个人云端风险模型", model_name="deepseek-flash", detect=Mock(return_value=True),
+            source="cloud", source_label="云端 API", credential_mode="personal",
         )
-        self.deepseek_instances["cloud"] = self.cloud_model
+        # Cloud inference now requires this browser's personal credential entry.
+        token = "test-only-personal-cloud-source-token"
+        self.stack.enter_context(patch.object(api_credentials, "_vault", {
+            token: {"model": self.cloud_model, "expires_at": time.time() + 3600},
+        }))
+        self.client.set_cookie(api_credentials.COOKIE_NAME, token)
         self.local_model = self.deepseek_instances["local"]
         self.local_model.display_name = self.deepseek_sources[1]["display_name"]
         self.local_model.check.return_value = (84, "本地模型的风险说明")
@@ -53,6 +60,8 @@ class DeepSeekSourceRouteTests(unittest.TestCase):
         self.assertIn("云端 API", html)
         self.assertIn("本地 Ollama", html)
         self.get_model.assert_not_called()
+        for model in (*self.model_instances.values(), self.cloud_model):
+            model.check.assert_not_called()
 
     def test_no_js_post_honors_each_source_and_preserves_it_in_report(self):
         for source, expected_score, selected, other in (
@@ -71,7 +80,10 @@ class DeepSeekSourceRouteTests(unittest.TestCase):
                 self.assertEqual(member["source_label"], selected.source_label)
                 self.assertEqual(member["score"], expected_score)
                 self.assertEqual(context["result"]["selected_count"], 1)
-                self.get_model.assert_called_once_with("deepseek_r1", source=source)
+                if source == "local":
+                    self.get_model.assert_called_once_with("deepseek_r1", source="local")
+                else:
+                    self.get_model.assert_not_called()
                 selected.check.assert_called_once()
                 other.check.assert_not_called()
                 stored = reports.list_reports()["records"][0]
@@ -79,7 +91,7 @@ class DeepSeekSourceRouteTests(unittest.TestCase):
                 self.assertEqual(stored["result"]["members"][0], member)
                 self.assertIn(member["display_name"], response.get_data(as_text=True))
 
-    def test_omitted_source_keeps_legacy_default_after_explicit_local_request(self):
+    def test_omitted_source_uses_personal_cloud_after_explicit_local_request(self):
         self.submit("/detect", mode="single", models=["deepseek_r1"], deepseek_source="local")
         self.cloud_model.check.reset_mock()
         self.local_model.check.reset_mock()
@@ -104,7 +116,7 @@ class DeepSeekSourceRouteTests(unittest.TestCase):
         stored = reports.list_reports()["records"][0]
         self.assertEqual(stored["result"]["members"][1]["source"], "local")
 
-    def test_invalid_source_is_rejected_by_all_endpoints_before_any_model_call(self):
+    def test_invalid_source_is_rejected_by_all_endpoints_before_inference(self):
         for endpoint in ("/detect", "/detect/check", "/detect/stream"):
             for invalid_source in ("both", "cloud,local", ""):
                 with self.subTest(endpoint=endpoint, source=invalid_source):
@@ -115,8 +127,8 @@ class DeepSeekSourceRouteTests(unittest.TestCase):
                     else:
                         self.assertTrue(self.contexts[-1][1]["error"])
                     self.get_model.assert_not_called()
-                    self.cloud_model.check.assert_not_called()
-                    self.local_model.check.assert_not_called()
+                    for model in (*self.model_instances.values(), self.cloud_model):
+                        model.check.assert_not_called()
                     self.assertEqual(reports.list_reports()["total"], 0)
 
     def test_stream_history_and_exports_keep_source_without_extra_vote(self):

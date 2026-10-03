@@ -16,6 +16,12 @@ ACTIVE_STATUSES = ("queued", "running", "cancelling")
 _lock = threading.RLock()
 _initialized_paths = set()
 _workers = {}
+_job_cloud_models = {}
+
+
+def _release_cloud_model(job_id):
+    with _lock:
+        _job_cloud_models.pop(job_id, None)
 
 
 def _now():
@@ -132,21 +138,34 @@ def initialize():
                     "UPDATE risk_batches SET status = 'interrupted', updated_at = ?, payload_json = ? WHERE id = ?",
                     (now, _json(job), job["id"]),
                 )
+                _job_cloud_models.pop(job["id"], None)
         _initialized_paths.add(directory)
 
 
-def create_batch(rows, model_ids, mode="vote", deepseek_source=None):
+def create_batch(rows, model_ids, mode="vote", deepseek_source=None, cloud_model=None):
     """所有输入通过后才落任务；队列由一个后台线程顺序执行。"""
     _, model_ids = validate_risk_request("验证批量检测配置", model_ids, mode, deepseek_source)
     resolved = dataset.resolve_rows(rows)
-    available_ids = {model["id"] for model in get_risk_models(deepseek_source) if model["available"]}
+    models = get_risk_models(deepseek_source, cloud_model=cloud_model)
+    available_ids = {model["id"] for model in models if model["available"]}
     if not any(model_id in available_ids for model_id in model_ids):
         raise ValueError("所选模型当前均不可用，请连接相应来源后再开始批量检测")
     initialize()
+    uses_deepseek = "deepseek_r1" in model_ids
+    if uses_deepseek and deepseek_source is None:
+        deepseek_source = next(model["source"] for model in models if model["id"] == "deepseek_r1")
+    uses_cloud = uses_deepseek and deepseek_source == "cloud"
+    captured_cloud = cloud_model is not None and uses_cloud
+    credential_mode = getattr(cloud_model, "credential_mode", "missing") if captured_cloud else (
+        "default" if uses_cloud else "local"
+    )
+    if credential_mode not in ("personal", "expired", "missing", "default", "local"):
+        credential_mode = "missing"
     now = _now()
     job = {
         "id": str(uuid.uuid4()), "status": "queued", "created_at": now, "updated_at": now,
         "model_ids": model_ids, "mode": mode, "deepseek_source": deepseek_source,
+        "credential_mode": credential_mode,
         "total": len(resolved), "completed_count": 0, "saved_count": 0, "failed_count": 0,
         "save_failed_count": 0, "current_index": None, "cancel_requested": False,
         "error": None, "items": [],
@@ -156,12 +175,21 @@ def create_batch(rows, model_ids, mode="vote", deepseek_source=None):
             **row, "index": index, "status": "pending", "members": [], "result": None,
             "record_id": None, "history_url": None, "history_error": None, "error": None,
         })
-    with _connection() as connection:
-        connection.execute(
-            "INSERT INTO risk_batches (id, status, created_at, updated_at, payload_json) VALUES (?, ?, ?, ?, ?)",
-            (job["id"], job["status"], now, now, _json(job)),
-        )
-    _start_worker()
+    with _lock:
+        with _connection() as connection:
+            connection.execute(
+                "INSERT INTO risk_batches (id, status, created_at, updated_at, payload_json) VALUES (?, ?, ?, ?, ?)",
+                (job["id"], job["status"], now, now, _json(job)),
+            )
+        if captured_cloud:
+            _job_cloud_models[job["id"]] = cloud_model
+    try:
+        _start_worker()
+    except Exception:
+        _release_cloud_model(job["id"])
+        job.update(status="interrupted", error="后台任务未能启动，请稍后重新提交。")
+        _save_job(job)
+        raise RuntimeError("Batch worker could not start") from None
     return job
 
 
@@ -172,6 +200,7 @@ def _cancel_requested(job_id, directory):
 
 
 def cancel_batch(job_id):
+    cancelled = False
     with _connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         row = connection.execute("SELECT * FROM risk_batches WHERE id = ?", (job_id,)).fetchone()
@@ -188,6 +217,9 @@ def cancel_batch(job_id):
                 "UPDATE risk_batches SET cancel_requested = 1, status = ?, updated_at = ?, payload_json = ? WHERE id = ?",
                 (status, _now(), _json(job), job_id),
             )
+            cancelled = status == "cancelled"
+    if cancelled:
+        _release_cloud_model(job_id)
     return get_batch(job_id)
 
 
@@ -230,17 +262,32 @@ def latest_reports(references):
 
 
 def run_batch(job_id, directory=None):
-    """执行一个已入队任务；公开给后台 worker 与无网络的同步测试。"""
+    """任务结束或异常退出时释放个人模型快照，不在持久化数据中留下密钥。"""
     directory = directory or _directory()
-    with _connection(directory) as connection:
-        claimed = connection.execute(
-            "UPDATE risk_batches SET status = 'running', updated_at = ? "
-            "WHERE id = ? AND status = 'queued'",
-            (_now(), job_id),
-        ).rowcount
-    if not claimed:
-        return
+    with _lock:
+        with _connection(directory) as connection:
+            claimed = connection.execute(
+                "UPDATE risk_batches SET status = 'running', updated_at = ? "
+                "WHERE id = ? AND status = 'queued'",
+                (_now(), job_id),
+            ).rowcount
+        if not claimed:
+            return
+        cloud_model = _job_cloud_models.get(job_id)
+    try:
+        return _run_batch(job_id, directory, cloud_model)
+    finally:
+        _release_cloud_model(job_id)
+
+
+def _run_batch(job_id, directory, cloud_model):
+    """执行一个已入队任务；公开给后台 worker 与无网络的同步测试。"""
     job = get_batch(job_id, directory)
+    if job.get("credential_mode") in ("personal", "expired", "missing") and cloud_model is None:
+        # Every web cloud job captures an override, including unavailable sentinels.
+        # A missing in-memory snapshot can never authorize use of a server-owned key.
+        from .api_credentials import ExpiredCloudModel, MissingCloudModel
+        cloud_model = MissingCloudModel() if job["credential_mode"] == "missing" else ExpiredCloudModel()
     for item in job["items"]:
         if _cancel_requested(job_id, directory):
             _finish_cancelled(job, directory)
@@ -251,7 +298,8 @@ def run_batch(job_id, directory=None):
         iterator = None
         finished_members = 0
         try:
-            iterator = iter_risk_check(item["message"], job["model_ids"], job["mode"], job["deepseek_source"])
+            iterator = iter_risk_check(item["message"], job["model_ids"], job["mode"], job["deepseek_source"],
+                                       cloud_model=cloud_model)
             while True:
                 # A full row can still produce its final aggregation without another model call.
                 if _cancel_requested(job_id, directory) and finished_members < len(job["model_ids"]):

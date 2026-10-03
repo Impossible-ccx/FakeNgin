@@ -37,7 +37,7 @@ _LEVEL_LABELS = {
 }
 
 
-def get_risk_models(deepseek_source=None):
+def get_risk_models(deepseek_source=None, cloud_model=None):
     """始终列出三个正式风险模型，并标明当前是否可用。"""
     _validate_deepseek_source(deepseek_source)
     available_models = {model["id"]: model for model in checkmodel.get_models()}
@@ -49,8 +49,15 @@ def get_risk_models(deepseek_source=None):
             if isinstance(configured.get(field), str) and configured[field].strip():
                 metadata[field] = configured[field]
         if model["id"] == "deepseek_r1":
-            sources = checkmodel.get_model_sources("deepseek_r1")
+            sources = [dict(item) for item in checkmodel.get_model_sources("deepseek_r1")]
+            if cloud_model is not None:
+                for item in sources:
+                    if item["source"] == "cloud":
+                        item.update(display_name=cloud_model.display_name, description=cloud_model.description,
+                                    model_name=cloud_model.model_name, available=bool(cloud_model.detect()))
             default_source = next((item["source"] for item in sources if item["available"]), "cloud")
+            if cloud_model is not None and getattr(cloud_model, "credential_mode", None) == "expired":
+                default_source = "cloud"
             source = deepseek_source or default_source
             selected_source = next(item for item in sources if item["source"] == source)
             metadata.update(
@@ -234,16 +241,27 @@ def _aggregate_result(members, selected, mode, started):
     }
 
 
-def iter_risk_check(message, model_ids, mode="vote", deepseek_source=None):
+def iter_risk_check(message, model_ids, mode="vote", deepseek_source=None, cloud_model=None):
     """逐个模型发出真实开始、完成事件，最后给出与同步检测相同的聚合结果。"""
     message, selected = validate_risk_request(message, model_ids, mode, deepseek_source)
+    if cloud_model is not None and deepseek_source is None and "deepseek_r1" in selected:
+        # Web callers always supply a personal model or an unavailable sentinel.
+        # Only inspect the local source here; never resolve the environment-backed cloud instance.
+        if getattr(cloud_model, "credential_mode", None) == "expired":
+            deepseek_source = "cloud"
+        else:
+            local_available = any(source["source"] == "local" and source["available"]
+                                  for source in checkmodel.get_model_sources("deepseek_r1"))
+            deepseek_source = "cloud" if cloud_model.detect() or not local_available else "local"
     started = perf_counter()
     members = []
     for model_id in selected:
         model = None
         lookup_error = None
         try:
-            if model_id == "deepseek_r1" and deepseek_source is not None:
+            if model_id == "deepseek_r1" and cloud_model is not None and deepseek_source in (None, "cloud"):
+                model = cloud_model
+            elif model_id == "deepseek_r1" and deepseek_source is not None:
                 model = checkmodel.get_model(model_id, source=deepseek_source)
             else:
                 model = checkmodel.get_model(model_id)
@@ -256,6 +274,9 @@ def iter_risk_check(message, model_ids, mode="vote", deepseek_source=None):
         display_name = getattr(model, "display_name", None)
         if not isinstance(display_name, str) or not display_name.strip():
             display_name = "DeepSeek（云端 API）" if model_id == "deepseek_r1" and source == "cloud" else _MODEL_BY_ID[model_id]["display_name"]
+        credential_mode = getattr(model, "credential_mode", "default") if source == "cloud" else "local"
+        if credential_mode not in ("default", "personal", "expired", "missing", "local"):
+            credential_mode = "default" if source == "cloud" else "local"
         yield {
             "type": "member_start",
             "member": {
@@ -263,10 +284,12 @@ def iter_risk_check(message, model_ids, mode="vote", deepseek_source=None):
                 "display_name": display_name,
                 "source": source,
                 "source_label": _SOURCE_LABELS[source],
+                "credential_mode": credential_mode,
                 "status": "running",
             },
         }
         member = _check_member(message, model_id, resolved=(model, lookup_error), source=source, display_name=display_name)
+        member["credential_mode"] = credential_mode
         members.append(member)
         yield {"type": "member_complete", "member": member}
     yield {
@@ -275,9 +298,9 @@ def iter_risk_check(message, model_ids, mode="vote", deepseek_source=None):
     }
 
 
-def run_risk_check(message, model_ids, mode="vote", deepseek_source=None):
+def run_risk_check(message, model_ids, mode="vote", deepseek_source=None, cloud_model=None):
     """同步调用同一检测流程，保留既有函数签名和完整结果字段。"""
-    for event in iter_risk_check(message, model_ids, mode, deepseek_source):
+    for event in iter_risk_check(message, model_ids, mode, deepseek_source, cloud_model=cloud_model):
         if event["type"] == "complete":
             return event["result"]
     raise RuntimeError("风险检测未产生完整结果")
