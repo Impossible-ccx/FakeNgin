@@ -741,9 +741,6 @@ a {
 .risk-text-button:hover { color: #1547b4; text-decoration: underline; }
 .risk-text-button:disabled { color: var(--risk-muted); cursor: wait; text-decoration: none; }
 .risk-text-button[hidden] { display: none; }
-.risk-reading-note { display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; padding: 14px; border-radius: 10px; background: #f3f6fb; color: var(--risk-muted); }
-.risk-reading-note p { margin: 0; font-size: 12px; line-height: 1.8; }
-.risk-note-mark { display: inline-flex; width: 17px; height: 17px; margin-top: 3px; align-items: center; justify-content: center; flex-shrink: 0; border: 1px solid #94a3b8; border-radius: 50%; font-size: 11px; font-weight: 700; }
 
 .risk-fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .risk-fieldset .risk-section-heading { justify-content: flex-start; margin-bottom: 16px; }
