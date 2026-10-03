@@ -43,7 +43,9 @@ python src/app.py
 
 ## Model
 
-添加其他模型查看src/checkmodel/下的__init__.py和base.py
+添加其他模型查看src/checkmodel/下的__init__.py和base.py；
+Ollama 系模型可直接复用 src/checkmodel/ollama_base.py 的公共基类。
+可选依赖清单见 requirements-optional.txt。
 
 ## Check
 

@@ -5,6 +5,8 @@
 """
 
 import importlib
+import sys
+
 from . import base
 
 MODEL_MODULES = [
@@ -40,7 +42,8 @@ def _ensure_loaded():
             available = bool(instance.detect())
             if(available):
                 instance.initialize()
-        except Exception:
+        except Exception as exc:
+            print("模型模块 {} 加载失败：{}".format(module_name, exc), file=sys.stderr)
             available = False
             instance = None
         if available:
