@@ -10,6 +10,9 @@ from . import base
 MODEL_MODULES = [
     "template_model",
     "ollama_qwen25",
+    "ollama_deepseek",
+    "ollama_glm4",
+    "roberta_classifier",
 ]
 
 _instances = {}
