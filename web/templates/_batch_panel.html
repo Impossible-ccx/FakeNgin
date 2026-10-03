@@ -1,0 +1,23 @@
+{% if current_job %}
+{% set job = current_job %}
+{% set state_labels = {'queued':'等待运行','running':'正在检测','cancelling':'正在停止','completed':'已完成','cancelled':'已停止','interrupted':'已中断'} %}
+{% set item_labels = {'pending':'等待检测','running':'正在检测','completed':'已完成','failed':'检测失败','cancelled':'已停止','interrupted':'已中断'} %}
+<section class="batch-job-panel" aria-labelledby="batch-job-title">
+    <header class="batch-job-heading"><div><p class="dash-eyebrow">BATCH PROGRESS / 批量任务</p><h2 id="batch-job-title">逐条执行，逐条保存</h2><p>任务在后台顺序运行，刷新此页可继续查看进度。</p></div><span class="batch-job-state" data-status="{{ job.status }}">{{ state_labels.get(job.status, job.status) }}</span></header>
+    <progress class="batch-job-track" value="{{ job.completed_count }}" max="{{ job.total }}" aria-label="已处理 {{ job.completed_count }} / {{ job.total }} 条消息"></progress>
+    <dl class="batch-job-facts"><div><dt>选定消息</dt><dd>{{ job.total }}</dd></div><div><dt>已处理</dt><dd>{{ job.completed_count }}</dd></div><div><dt>已保存报告</dt><dd>{{ job.saved_count }}</dd></div><div><dt>未获有效结果</dt><dd>{{ job.failed_count }}</dd></div></dl>
+    {% if job.error %}<p class="batch-job-error" role="alert">{{ job.error }}</p>{% endif %}
+    {% if job.status == 'cancelling' %}<p class="batch-job-notice">正在等待当前模型返回，随后停止后续检测。已保存的报告会保留。</p>{% elif job.status in ['cancelled', 'interrupted'] %}<p class="batch-job-notice">任务已停止。完整报告已保留，未完成的消息可以重新勾选后检测。</p>{% endif %}
+    {% if job.current_index is not none and job.status in ['running','cancelling'] %}
+    {% set active_item = job['items'][job.current_index] %}
+    <div class="batch-job-current"><div class="batch-job-current-heading"><h3>当前第 {{ job.current_index + 1 }} / {{ job.total }} 条</h3><span>逐模型进度</span></div><p class="batch-job-message">{{ active_item.message }}</p><div class="batch-job-models">{% for member in active_item.members %}<article class="batch-job-model risk-live-member" data-status="{{ member.status }}"><h4>{{ member.display_name }}</h4>{% if member.get('source_label') %}<span class="risk-live-source">{{ member.source_label }}</span>{% endif %}<span class="risk-live-status">{{ {'queued':'等待运行','running':'正在分析','ok':'已完成','error':'失败','unavailable':'未连接','abstained':'弃权'}.get(member.status,member.status) }}</span>{% if member.get('score') is not none %}<strong class="risk-live-score">{{ '%.1f' | format(member.score) }} / 100</strong>{% endif %}{% if member.get('reason') %}<p class="risk-live-reason">{{ member.reason }}</p>{% endif %}{% if member.get('error') %}<p class="batch-job-error">{{ member.error }}</p>{% endif %}</article>{% else %}<p class="batch-job-notice">正在准备模型，请稍候。</p>{% endfor %}</div></div>
+    {% endif %}
+    <div class="batch-job-items" role="list">
+        {% for item in job['items'] %}
+        <article class="batch-job-item" data-status="{{ item.status }}" role="listitem"><span class="batch-job-index">{{ loop.index }}</span><div class="batch-job-item-content"><p class="batch-job-message">{{ item.message | truncate(160) }}</p><div class="batch-job-meta"><span>{{ item_labels.get(item.status,item.status) }}</span>{% if item.result %}<span class="batch-result-badge risk-level-{{ item.result.level }}">{{ item.result.label }}</span>{% endif %}{% if item.history_url %}<a class="batch-report-link" href="{{ item.history_url }}">查看完整报告 <span aria-hidden="true">↗</span></a>{% endif %}</div>{% if item.error %}<p class="batch-job-error">{{ item.error }}</p>{% endif %}{% if item.history_error %}<p class="batch-job-error">报告未保存：{{ item.history_error }}</p>{% endif %}</div></article>
+        {% endfor %}
+    </div>
+    <div class="batch-job-actions"><a class="dash-button dash-button-small" href="{{ url_for('main.data',job=job.id) }}">刷新进度</a><a class="batch-report-link" href="{{ url_for('main.history') }}">前往历史记录 <span aria-hidden="true">↗</span></a>{% if job.status in ['queued','running','cancelling'] %}<form id="batch-cancel-form" method="post" action="{{ url_for('main.batch_cancel',job_id=job.id) }}"><button id="batch-cancel-button" type="submit" class="batch-cancel-button" {% if job.cancel_requested %}disabled{% endif %}>{% if job.cancel_requested %}正在停止…{% else %}停止后续检测{% endif %}</button></form>{% endif %}</div>
+    <p class="batch-job-footnote">批量任务只在此显示执行状态；每条消息的完整评分、理由和导出文件请在历史记录中查看。</p>
+</section>
+{% endif %}

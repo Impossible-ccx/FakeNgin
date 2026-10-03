@@ -5,7 +5,7 @@ from pathlib import Path
 from flask import Flask
 from dotenv import load_dotenv
 
-from . import auth, db, newsdata
+from . import auth, batches, db, newsdata
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WEB_DIR = PROJECT_ROOT / "web"
@@ -24,6 +24,7 @@ def create_app():
 
     db.ensure_database()
     newsdata.ensure_newsdata()
+    batches.initialize()
 
     from .routes import main
 

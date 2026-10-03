@@ -24,7 +24,7 @@
     <div class="overview-tools">
         <a class="tool-card tool-card-primary" href="{{ url_for('main.detect') }}"><div class="tool-card-top"><span class="tool-icon" aria-hidden="true">⌁</span><span>01 / ANALYZE</span></div><h3>检测工作台</h3><p>选择单模型或多模型投票，实时查看进度、风险评分和判断理由。</p><span class="tool-link">开始检测 <b aria-hidden="true">↗</b></span></a>
         <a class="tool-card" href="{{ url_for('main.history') }}"><div class="tool-card-top"><span class="tool-icon" aria-hidden="true">◷</span><span>02 / REVIEW</span></div><h3>历史与报告</h3><p>搜索过往检测，回看原始消息与模型结果，一键复制或导出。</p><span class="tool-link">查看记录 <b aria-hidden="true">↗</b></span></a>
-        <a class="tool-card" href="{{ url_for('main.data') }}"><div class="tool-card-top"><span class="tool-icon" aria-hidden="true">▤</span><span>03 / EXPLORE</span></div><h3>数据浏览</h3><p>检索已有消息，浏览数据集标签、消息来源与历史分析分数。</p><span class="tool-link">打开数据集 <b aria-hidden="true">↗</b></span></a>
+        <a class="tool-card" href="{{ url_for('main.data') }}"><div class="tool-card-top"><span class="tool-icon" aria-hidden="true">▤</span><span>03 / DATASET</span></div><h3>数据与批量检测</h3><p>导入和检索消息样本，选择模型批量检测，完成后自动保存报告。</p><span class="tool-link">准备一批消息 <b aria-hidden="true">↗</b></span></a>
     </div>
 </section>
 {% endblock %}

@@ -71,6 +71,7 @@ def _csv_export(record):
     writer = csv.writer(output)
     writer.writerow([
         "report_id", "created_at_utc", "prompt_version", "message", "mode",
+        "batch_id", "batch_index", "batch_total", "dataset_file", "dataset_row",
         "final_level", "final_label", "decision_method", "mean_score",
         "warning", "fallback_reason", "votes_low", "votes_medium", "votes_high", "has_failures",
         "selected_count", "success_count", "agreement_count", "majority_required",
@@ -79,7 +80,10 @@ def _csv_export(record):
     ])
     common = [
         record["id"], record["created_at"], record["prompt_version"], record["message"],
-        result["mode"], result["level"], result["label"], result["decision_method"],
+        result["mode"], result.get("batch_id", ""), result.get("batch_index", ""),
+        result.get("batch_total", ""), result.get("dataset_ref", {}).get("file", ""),
+        result.get("dataset_ref", {}).get("row", ""),
+        result["level"], result["label"], result["decision_method"],
         result["mean_score"], result["warning"], result["fallback_reason"],
         result["votes"]["low"], result["votes"]["medium"], result["votes"]["high"], result["has_failures"],
         result["selected_count"], result["success_count"],
@@ -119,6 +123,11 @@ def _text_export(record):
     ]
     if result["mean_score"] is not None:
         lines.append("有效分数均值：{} / 100".format(result["mean_score"]))
+    if result.get("batch_id"):
+        lines.extend([
+            "所属批量任务：" + result["batch_id"],
+            "批内序号：{} / {}".format(result["batch_index"] + 1, result["batch_total"]),
+        ])
     if result["fallback_reason"]:
         lines.append("使用均值的原因：" + result["fallback_reason"])
     for index, member in enumerate(result["members"], 1):

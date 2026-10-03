@@ -11,7 +11,7 @@
     <div class="history-list">
         {% for item in records %}
         <article class="history-card risk-level-{{ item.result.level }}">
-            <div class="history-card-top"><span class="history-level"><i></i>{{ item.result.label }}</span><span class="history-method">{{ method_label(item.result.decision_method) }}</span><time datetime="{{ item.created_at }}" data-local-time>{{ item.created_at }}</time></div>
+            <div class="history-card-top"><span class="history-level"><i></i>{{ item.result.label }}</span><span class="history-method">{{ method_label(item.result.decision_method) }}</span>{% if item.result.get('batch_id') %}<a class="history-method batch-history-link" href="{{ url_for('main.data',job=item.result.batch_id) }}">批量检测 · {{ item.result.batch_index + 1 }} / {{ item.result.batch_total }}</a>{% endif %}<time datetime="{{ item.created_at }}" data-local-time>{{ item.created_at }}</time></div>
             <a class="history-message" href="{{ url_for('main.report',report_id=item.id) }}">{{ item.message }}</a>
             <div class="history-card-bottom"><div class="history-models">{% for model_id in item.model_ids %}{{ model_mark(model_id) }}{% endfor %}<span>{{ item.result.success_count }} / {{ item.result.selected_count }} 个有效结果</span><span class="history-duration">{{ '%.1f' | format(item.result.elapsed_seconds) }} 秒</span></div><a class="history-open" href="{{ url_for('main.report',report_id=item.id) }}">查看报告 <span aria-hidden="true">↗</span></a></div>
         </article>
