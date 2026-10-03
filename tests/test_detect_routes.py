@@ -52,6 +52,8 @@ class DetectRouteTests(unittest.TestCase):
             for model_id in RISK_IDS
         }
         self.get_model = self.stack.enter_context(patch.object(checkmodel, "get_model", side_effect=self.lookup_model))
+        # Tests must never load real API credentials from the workspace .env.
+        self.stack.enter_context(patch("webapp.load_dotenv"))
         self.app = create_app()
         self.app.config.update(TESTING=True)
         self.client = self.app.test_client()
@@ -296,7 +298,7 @@ class DetectRouteTests(unittest.TestCase):
         self.assertNotIn(reason, fragment)
         self.assertIn(str(escape(reason)), fragment)
 
-    def test_full_page_and_async_fragment_show_same_decision_without_saving(self):
+    def test_full_page_and_async_fragment_show_same_decision_without_modifying_csv(self):
         self.configure_scores([15, 20, 80])
         with patch.object(newsdata, "append_message") as append_message:
             full_response, full_context = self.submit("/detect")

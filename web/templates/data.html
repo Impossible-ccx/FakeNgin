@@ -1,9 +1,14 @@
 {% extends "base.html" %}
 {% set nature_class = {'虚假': 'fake', '真实': 'real', '中立': 'neutral', '未校验': 'unknown'} %}
 
-{% block title %}FakeNgin · 谣言数据展示{% endblock %}
+{% block title %}FakeNgin · 数据浏览{% endblock %}
 
 {% block content %}
+<div class="data-workspace">
+<header class="dash-hero dash-hero-compact">
+    <div><p class="dash-kicker">DATA EXPLORER / 数据浏览</p><h1>已有消息，一览有序。</h1><p>检索关键词，浏览消息来源、数据集标签与历史分析分数。</p></div>
+    <div class="dash-hero-aside"><span>数据集规模</span><strong>{{ total }}</strong><span>条消息</span></div>
+</header>
 <section class="panel">
     <div class="panel-head">
         <h2>消息搜索</h2>
@@ -11,7 +16,7 @@
     </div>
 
     <form class="search-bar" method="get" action="{{ url_for('main.data') }}">
-        <input type="text" name="q" value="{{ query }}" placeholder="输入关键词搜索消息">
+        <input type="text" name="q" value="{{ query }}" placeholder="输入关键词搜索消息" aria-label="搜索消息关键词">
         <button type="submit" class="btn btn-primary">搜索</button>
     </form>
 
@@ -50,8 +55,6 @@
         {% endif %}
     {% endif %}
 </section>
-
-<section class="panel panel-blank"></section>
 
 <section class="panel">
     <div class="panel-head">
@@ -104,4 +107,5 @@
         {% endif %}
     </div>
 </section>
+</div>
 {% endblock %}

@@ -1,0 +1,6 @@
+{% macro model_mark(model_id) -%}
+{% if 'qwen' in model_id | lower %}<span class="model-mark model-mark-q" aria-hidden="true">Q</span>{% elif 'deepseek' in model_id | lower %}<span class="model-mark model-mark-d" aria-hidden="true">D</span>{% elif 'glm' in model_id | lower %}<span class="model-mark model-mark-g" aria-hidden="true">G</span>{% else %}<span class="model-mark" aria-hidden="true">M</span>{% endif %}
+{%- endmacro %}
+{% macro method_label(method) -%}
+{{ {'majority':'多数投票', 'mean_fallback':'平均分兜底', 'single':'单模型分析', 'unavailable':'无有效结果'}.get(method, '风险分析') }}
+{%- endmacro %}

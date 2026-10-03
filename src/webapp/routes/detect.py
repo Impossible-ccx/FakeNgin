@@ -1,11 +1,23 @@
-"""自动风险检测：单模型分析和等权等级投票，不写入真假标签或人工队列。"""
+"""自动风险检测、真实逐模型进度，以及完整检测报告的保存。"""
 
-from flask import render_template, request
+import json
+
+from flask import Response, current_app, jsonify, render_template, request, stream_with_context, url_for
 
 from checkmodel.ensemble import (
-    MAX_MESSAGE_LENGTH, RISK_MODELS, get_risk_models, run_risk_check,
+    MAX_MESSAGE_LENGTH, RISK_MODELS, get_risk_models, iter_risk_check,
+    run_risk_check, validate_risk_request,
 )
+from .. import reports
 from . import main
+
+
+def _save_result(message, model_ids, result):
+    try:
+        return reports.save_report(message, model_ids, result), None
+    except Exception:
+        current_app.logger.warning("Failed to save risk report")
+        return None, "检测已完成，但历史记录保存失败。当前结果仍可查看，请稍后重试。"
 
 
 def _context(form=None):
@@ -17,6 +29,8 @@ def _context(form=None):
         "message": "",
         "result": None,
         "error": None,
+        "record": None,
+        "history_error": None,
         "max_message_length": MAX_MESSAGE_LENGTH,
     }
     if form is None:
@@ -30,6 +44,10 @@ def _context(form=None):
         context["result"] = run_risk_check(message, selected_ids, mode=mode)
     except ValueError as exc:
         context["error"] = str(exc)
+    else:
+        context["record"], context["history_error"] = _save_result(
+            message, selected_ids, context["result"],
+        )
     return context
 
 
@@ -43,3 +61,50 @@ def detect():
 def detect_check():
     """返回结果片段；无 JavaScript 的表单可回退到 /detect。"""
     return render_template("_detect_result.html", **_context(request.form))
+
+
+@main.route("/detect/stream", methods=["POST"])
+def detect_stream():
+    """按真实推理完成情况发送 NDJSON；输入错误在开始流式响应前返回。"""
+    mode = request.form.get("mode", "vote")
+    try:
+        message, model_ids = validate_risk_request(
+            request.form.get("message", ""), request.form.getlist("models"), mode,
+        )
+    except ValueError as exc:
+        return jsonify(type="error", message=str(exc)), 400
+
+    def events():
+        try:
+            for event in iter_risk_check(message, model_ids, mode):
+                if event["type"] == "complete":
+                    result = event["result"]
+                    record, history_error = _save_result(message, model_ids, result)
+                    html = render_template(
+                        "_detect_result.html", result=result, record=record,
+                        error=None, history_error=history_error, message=message,
+                        mode=mode, selected_ids=model_ids,
+                    )
+                    event = {
+                        "type": "complete",
+                        "html": html,
+                        "record_id": record["id"] if record else None,
+                        "history_url": url_for("main.report", report_id=record["id"]) if record else None,
+                        "history_error": history_error,
+                    }
+                yield json.dumps(event, ensure_ascii=False, allow_nan=False) + "\n"
+        except GeneratorExit:
+            # 浏览器关闭连接时不继续模型调用，也不伪造完成或保存部分结果。
+            raise
+        except Exception:
+            current_app.logger.warning("Risk detection stream interrupted")
+            yield json.dumps({
+                "type": "error",
+                "message": "检测连接中断，请稍后重试。",
+            }, ensure_ascii=False, allow_nan=False) + "\n"
+
+    return Response(
+        stream_with_context(events()),
+        content_type="application/x-ndjson; charset=utf-8",
+        headers={"Cache-Control": "no-cache, no-store", "X-Accel-Buffering": "no"},
+    )

@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from flask import Flask
+from dotenv import load_dotenv
 
 from . import auth, db, newsdata
 
@@ -13,6 +14,7 @@ SECRET_KEY = "fakengin-secret-key"
 
 
 def create_app():
+    load_dotenv(PROJECT_ROOT / ".env", override=False)
     app = Flask(
         __name__,
         static_folder=str(WEB_DIR / "static"),

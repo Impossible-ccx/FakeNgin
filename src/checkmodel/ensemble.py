@@ -37,14 +37,20 @@ _LEVEL_LABELS = {
 
 def get_risk_models():
     """始终列出三个正式风险模型，并标明当前是否可用。"""
-    available_ids = {model["id"] for model in checkmodel.get_models()}
-    return [
-        {**model, "available": model["id"] in available_ids}
-        for model in RISK_MODELS
-    ]
+    available_models = {model["id"]: model for model in checkmodel.get_models()}
+    models = []
+    for model in RISK_MODELS:
+        metadata = {**model, "available": model["id"] in available_models}
+        configured = available_models.get(model["id"], {})
+        for field in ("display_name", "description"):
+            if isinstance(configured.get(field), str) and configured[field].strip():
+                metadata[field] = configured[field]
+        models.append(metadata)
+    return models
 
 
-def _validate_request(message, model_ids, mode):
+def validate_risk_request(message, model_ids, mode="vote"):
+    """在启动推理前验证请求，返回规范化消息和选定模型列表。"""
     if not isinstance(message, str) or not message.strip():
         raise ValueError("请输入消息内容")
     message = message.strip()
@@ -88,7 +94,7 @@ def _validate_output(output):
     return score, _risk_level(score), reason.strip()
 
 
-def _check_member(message, model_id):
+def _check_member(message, model_id, resolved=None):
     started = perf_counter()
     member = {
         "id": model_id,
@@ -103,13 +109,21 @@ def _check_member(message, model_id):
     }
     try:
         try:
-            model = checkmodel.get_model(model_id)
+            if resolved is None:
+                model = checkmodel.get_model(model_id)
+            else:
+                model, lookup_error = resolved
+                if lookup_error is not None:
+                    raise lookup_error
         except KeyError:
             member.update(
                 status="unavailable", label="模型不可用",
                 error="该模型当前不可用，请检查本地服务和模型权重",
             )
             return member
+        display_name = getattr(model, "display_name", None)
+        if isinstance(display_name, str) and display_name.strip():
+            member["display_name"] = display_name
         score, level, reason = _validate_output(model.check(message))
         member.update(
             status="ok", score=score, level=level,
@@ -129,11 +143,8 @@ def _check_member(message, model_id):
     return member
 
 
-def run_risk_check(message, model_ids, mode="vote"):
+def _aggregate_result(members, selected, mode, started):
     """按选定成员总数计票；无多数则对有效分数取均值，零有效分才无法判断。"""
-    message, selected = _validate_request(message, model_ids, mode)
-    started = perf_counter()
-    members = [_check_member(message, model_id) for model_id in selected]
     votes = {"low": 0, "medium": 0, "high": 0}
     for member in members:
         if member["status"] == "ok":
@@ -174,8 +185,6 @@ def run_risk_check(message, model_ids, mode="vote"):
         warning = "{}结果为{}。".format(
             "多数投票" if decision_method == "majority" else "单模型检测", _LEVEL_LABELS[level],
         )
-    warning += "语言风险不代表事实真假，模型一致也不等于事实已被核实。"
-
     return {
         "mode": mode,
         "level": level,
@@ -195,3 +204,43 @@ def run_risk_check(message, model_ids, mode="vote"):
         "elapsed_seconds": round(perf_counter() - started, 3),
         "members": members,
     }
+
+
+def iter_risk_check(message, model_ids, mode="vote"):
+    """逐个模型发出真实开始、完成事件，最后给出与同步检测相同的聚合结果。"""
+    message, selected = validate_risk_request(message, model_ids, mode)
+    started = perf_counter()
+    members = []
+    for model_id in selected:
+        model = None
+        lookup_error = None
+        try:
+            model = checkmodel.get_model(model_id)
+        except Exception as exc:
+            lookup_error = exc
+        display_name = getattr(model, "display_name", None)
+        if not isinstance(display_name, str) or not display_name.strip():
+            display_name = _MODEL_BY_ID[model_id]["display_name"]
+        yield {
+            "type": "member_start",
+            "member": {
+                "id": model_id,
+                "display_name": display_name,
+                "status": "running",
+            },
+        }
+        member = _check_member(message, model_id, resolved=(model, lookup_error))
+        members.append(member)
+        yield {"type": "member_complete", "member": member}
+    yield {
+        "type": "complete",
+        "result": _aggregate_result(members, selected, mode, started),
+    }
+
+
+def run_risk_check(message, model_ids, mode="vote"):
+    """同步调用同一检测流程，保留既有函数签名和完整结果字段。"""
+    for event in iter_risk_check(message, model_ids, mode):
+        if event["type"] == "complete":
+            return event["result"]
+    raise RuntimeError("风险检测未产生完整结果")

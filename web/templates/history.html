@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "_ui.html" import model_mark, method_label %}
+{% block title %}FakeNgin · 历史记录{% endblock %}
+{% block content %}
+<div class="risk-workspace">
+    <header class="dash-hero dash-hero-compact"><div><p class="dash-kicker">HISTORY / 分析档案</p><h1>每一次分析，都有迹可循。</h1><p>回看消息原文、模型判断与聚合过程，随时导出完整报告。</p></div><a class="dash-button dash-button-light" href="{{ url_for('main.detect') }}">新建检测 <span aria-hidden="true">＋</span></a></header>
+    <section class="history-toolbar"><div><h2>检测记录 <span class="history-total">{{ total }}</span></h2><p>{% if query %}关键词“{{ query }}”的搜索结果{% else %}已保存的完整分析报告{% endif %}</p></div><form class="history-search" method="get" action="{{ url_for('main.history') }}"><label class="visually-hidden" for="history-query">搜索历史消息</label><input id="history-query" name="q" value="{{ query or '' }}" placeholder="搜索历史消息…"><button type="submit" class="dash-button dash-button-small">搜索</button>{% if query %}<a href="{{ url_for('main.history') }}" class="clear-query">清除</a>{% endif %}</form></section>
+    {% if error %}
+    <section class="risk-error" role="alert"><span class="error-symbol" aria-hidden="true">!</span><div><h2>历史记录暂时无法读取</h2><p>{{ error }}</p><a class="dash-button dash-button-small" href="{{ url_for('main.history',q=query or None) }}">重新加载</a></div></section>
+    {% elif records %}
+    <div class="history-list">
+        {% for item in records %}
+        <article class="history-card risk-level-{{ item.result.level }}">
+            <div class="history-card-top"><span class="history-level"><i></i>{{ item.result.label }}</span><span class="history-method">{{ method_label(item.result.decision_method) }}</span><time datetime="{{ item.created_at }}" data-local-time>{{ item.created_at }}</time></div>
+            <a class="history-message" href="{{ url_for('main.report',report_id=item.id) }}">{{ item.message }}</a>
+            <div class="history-card-bottom"><div class="history-models">{% for model_id in item.model_ids %}{{ model_mark(model_id) }}{% endfor %}<span>{{ item.result.success_count }} / {{ item.result.selected_count }} 个有效结果</span><span class="history-duration">{{ '%.1f' | format(item.result.elapsed_seconds) }} 秒</span></div><a class="history-open" href="{{ url_for('main.report',report_id=item.id) }}">查看报告 <span aria-hidden="true">↗</span></a></div>
+        </article>
+        {% endfor %}
+    </div>
+    <nav class="pagination" aria-label="历史记录分页">{% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('main.history',page=page-1,q=query or None) }}">上一页</a>{% else %}<span class="btn btn-sm btn-disabled">上一页</span>{% endif %}<span class="page-info">第 {{ page }} / {{ total_pages }} 页</span>{% if page < total_pages %}<a class="btn btn-sm" href="{{ url_for('main.history',page=page+1,q=query or None) }}">下一页</a>{% else %}<span class="btn btn-sm btn-disabled">下一页</span>{% endif %}</nav>
+    {% else %}
+    <section class="history-empty"><div class="empty-orbit" aria-hidden="true"><span>◷</span></div><p class="dash-eyebrow">{% if query %}NO MATCHES{% else %}A FRESH START{% endif %}</p><h2>{% if query %}没有找到匹配的记录{% else %}第一份分析报告，等待你创建{% endif %}</h2><p>{% if query %}试试更短的关键词，或查看全部历史记录。{% else %}完成一次检测后，原始消息与逐模型结果将在这里保存。{% endif %}</p><a class="dash-button" href="{{ url_for('main.history') if query else url_for('main.detect') }}">{% if query %}查看全部记录{% else %}开始首次检测{% endif %}<span aria-hidden="true">↗</span></a></section>
+    {% endif %}
+</div>
+{% endblock %}

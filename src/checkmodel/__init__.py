@@ -12,6 +12,7 @@ from . import base
 MODEL_MODULES = [
     "template_model",
     "ollama_qwen25",
+    "deepseek_api",
     "ollama_deepseek",
     "ollama_glm4",
     "roberta_classifier",
@@ -38,12 +39,15 @@ def _ensure_loaded():
     for module_name in MODEL_MODULES:
         try:
             model_class = _load_module_class(module_name)
+            # 同一逻辑 ID 只登记首个可用实现：配置云端时不再增加一张本地票。
+            if model_class.name in _instances:
+                continue
             instance = model_class()
             available = bool(instance.detect())
             if(available):
                 instance.initialize()
-        except Exception as exc:
-            print("模型模块 {} 加载失败：{}".format(module_name, exc), file=sys.stderr)
+        except Exception:
+            print("模型模块 {} 加载失败，请检查配置".format(module_name), file=sys.stderr)
             available = False
             instance = None
         if available:
@@ -55,19 +59,11 @@ def _ensure_loaded():
 def get_models():
     """返回全部可用模型的元信息。"""
     _ensure_loaded()
-    models = []
-    for module_name in MODEL_MODULES:
-        try:
-            model_class = _load_module_class(module_name)
-        except Exception:
-            continue
-        if _available.get(model_class.name):
-            models.append({
-                "id": model_class.name,
-                "display_name": model_class.display_name,
-                "description": model_class.description,
-            })
-    return models
+    return [
+        {"id": model_id, "display_name": instance.display_name, "description": instance.description}
+        for model_id, instance in _instances.items()
+        if _available.get(model_id)
+    ]
 
 
 def get_model(model_id) -> base.CheckModel:
