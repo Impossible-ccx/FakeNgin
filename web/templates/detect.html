@@ -1,49 +1,96 @@
 {% extends "base.html" %}
+{% set available_models = models | selectattr('available') | list %}
 
-{% block title %}FakeNgin · 谣言检测系统{% endblock %}
+{% block title %}FakeNgin · 风险检测工作台{% endblock %}
 
 {% block content %}
-<section class="panel">
-    <div class="panel-head">
-        <h2>谣言检测系统</h2>
-    </div>
+<div class="risk-workspace">
+    <header class="risk-page-heading">
+        <div>
+            <p class="risk-eyebrow">FAKENGIN / 文本风险分析</p>
+            <h1>风险检测工作台</h1>
+            <p class="risk-intro">让多个模型独立判断，查看风险分、理由与投票结果。</p>
+        </div>
+        <span class="risk-local-badge"><span aria-hidden="true">●</span> 本地模型推理</span>
+    </header>
 
-    <p class="detect-intro">
-        请输入待检测的消息，并选择检测模型。系统会输出该消息为谣言的虚假概率（0-100%，越接近 100% 表示越可能为谣言）
-        及相应提示。本地大模型推理通常需要 20~120 秒，请耐心等待。检测结果仅供参考，请结合消息来源与常识综合判断；
-        可将结果保存到数据集，供人工校验系统复核。
-    </p>
-
-    <form id="detect-form" method="post" action="{{ url_for('main.detect') }}"
+    <form id="detect-form" class="risk-form" method="post" action="{{ url_for('main.detect') }}"
           data-check-url="{{ url_for('main.detect_check') }}">
-        <label class="field field-wide">
-            <span>消息内容</span>
-            <textarea name="message" rows="4" placeholder="请输入消息内容">{{ message }}</textarea>
-        </label>
-
-        <div class="field">
-            <span>检测模型</span>
-            <div class="model-options">
-                {% for m in models %}
-                <div class="model-option">
-                    <label class="radio">
-                        <input type="radio" name="model" value="{{ m.id }}" {% if m.id == selected %}checked{% endif %}>
-                        <span class="model-name">{{ m.display_name }}</span>
-                    </label>
-                    <p class="model-desc">{{ m.description }}</p>
-                </div>
-                {% endfor %}
+        <div class="risk-input-panel">
+            <div class="risk-section-heading">
+                <label for="risk-message"><span class="risk-step" aria-hidden="true">01</span> 输入消息</label>
+                <button type="button" id="risk-example" class="risk-text-button" hidden>填入示例</button>
+            </div>
+            <p id="risk-message-help" class="risk-help">粘贴一条需要分析的消息，尽量保留原始上下文。</p>
+            <textarea id="risk-message" class="risk-message" name="message" rows="10"
+                      maxlength="{{ max_message_length }}" required
+                      aria-describedby="risk-message-help risk-char-count"
+                      placeholder="在这里输入或粘贴消息内容…">{{ message }}</textarea>
+            <div class="risk-input-footer">
+                <button type="button" id="risk-clear" class="risk-text-button" hidden>清空内容</button>
+                <span id="risk-char-count" class="risk-char-count">{{ message | length }} / {{ max_message_length }} 字符</span>
+            </div>
+            <div class="risk-reading-note">
+                <span class="risk-note-mark" aria-hidden="true">i</span>
+                <p>风险分反映模型对文本的判断，不代表经过校准的真假概率。低风险不保证真实，高风险不等于虚假。</p>
             </div>
         </div>
 
-        <div class="form-actions">
-            <button type="submit" class="btn btn-primary">检测</button>
+        <div class="risk-settings-panel">
+            <fieldset class="risk-fieldset">
+                <legend class="risk-section-heading"><span class="risk-step" aria-hidden="true">02</span> 选择检测方式</legend>
+                <div class="risk-mode-options">
+                    <label class="risk-mode-option">
+                        <input type="radio" name="mode" value="vote" {% if mode != 'single' %}checked{% endif %}>
+                        <span><strong>多模型投票</strong><small>选择 2–3 个模型</small></span>
+                    </label>
+                    <label class="risk-mode-option">
+                        <input type="radio" name="mode" value="single" {% if mode == 'single' %}checked{% endif %}>
+                        <span><strong>单模型分析</strong><small>选择 1 个模型</small></span>
+                    </label>
+                </div>
+            </fieldset>
+
+            <fieldset class="risk-fieldset risk-model-fieldset" aria-describedby="risk-selection-help">
+                <legend class="risk-model-legend">参与模型 <span>{{ available_models | length }} / {{ models | length }} 可用</span></legend>
+                <div class="risk-model-list">
+                    {% for m in models %}
+                    <label class="risk-model {% if not m.available %}risk-model-unavailable{% endif %}">
+                        <input type="checkbox" name="models" value="{{ m.id }}" data-available="{{ 'true' if m.available else 'false' }}"
+                               {% if m.id in selected_ids %}checked{% endif %}>
+                        <span class="risk-model-copy">
+                            <span class="risk-model-title"><strong>{{ m.display_name }}</strong>
+                                <span class="risk-availability {% if m.available %}risk-availability-ready{% endif %}">{% if m.available %}可用{% else %}未就绪{% endif %}</span>
+                            </span>
+                            <span class="risk-model-description">{{ m.description }}</span>
+                        </span>
+                    </label>
+                    {% else %}
+                    <p class="risk-empty-models">尚未配置可用模型。</p>
+                    {% endfor %}
+                </div>
+                <p id="risk-selection-help" class="risk-selection-help" aria-live="polite">{% if mode == 'single' %}请选择 1 个可用模型。{% else %}请选择 2–3 个模型，至少一个可用。优先按多数票判断，无多数时使用有效分数的均值。{% endif %}</p>
+            </fieldset>
+
+            {% if available_models | length < models | length or not models %}
+            <details class="risk-setup" {% if not available_models %}open{% endif %}>
+                <summary>{% if not available_models %}模型尚未就绪{% else %}部分模型未就绪{% endif %} · 查看准备步骤</summary>
+                <p>安装并启动 Ollama，安装 Python 的 ollama 依赖，下载需要的 Qwen、DeepSeek 或 GLM 模型权重，然后重启网站以重新检查模型状态。</p>
+                <p>未就绪模型保留在名单中但不计入平均分。全部模型未就绪时无法检测。具体模型版本与安装命令见项目 README。</p>
+            </details>
+            {% endif %}
+
+            <button type="submit" class="risk-submit" {% if not available_models %}disabled{% endif %}>
+                <span>开始检测</span><span aria-hidden="true">→</span>
+            </button>
+            <p class="risk-runtime-note">本机模型依次运行，完成后统一展示结果。运行时间取决于模型与设备性能。</p>
+            <noscript><p class="risk-help">提交后请等待页面返回；单模型模式请选择一个模型，投票模式请选择两个或三个模型。</p></noscript>
         </div>
     </form>
-</section>
 
-<div id="detect-result-box">
-    {% include "_detect_result.html" %}
+    <div id="detect-result-box" class="risk-result-box" aria-live="polite" aria-busy="false">
+        {% include "_detect_result.html" %}
+    </div>
 </div>
 {% endblock %}
 

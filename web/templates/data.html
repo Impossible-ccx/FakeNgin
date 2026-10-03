@@ -23,7 +23,8 @@
                     <tr>
                         <th>消息内容</th>
                         <th>性质</th>
-                        <th>虚假概率</th>
+                        <th>风险评分</th>
+                        <th>历史分类分数</th>
                         <th>来源</th>
                         <th>发出时间</th>
                         <th>处理时间</th>
@@ -34,6 +35,7 @@
                     <tr>
                         <td class="cell-content"><div class="clamp">{{ r.content }}</div></td>
                         <td><span class="nature nature-{{ nature_class.get(r.nature, 'unknown') }}">{{ r.nature }}</span></td>
+                        <td title="{{ r.risk_model }} · {{ r.risk_reason }}">{% if r.risk_score %}{{ r.risk_score }} / 100{% else %}<span class="muted">—</span>{% endif %}</td>
                         <td>{% if r.fake_probability %}{{ r.fake_probability }}%{% else %}<span class="muted">—</span>{% endif %}</td>
                         <td>{{ r.source }}</td>
                         <td class="cell-time">{{ r.publish_time or '—' }}</td>
@@ -63,7 +65,8 @@
                 <tr>
                     <th>消息内容</th>
                     <th>性质</th>
-                    <th>虚假概率</th>
+                    <th>风险评分</th>
+                    <th>历史分类分数</th>
                     <th>来源</th>
                     <th>发出时间</th>
                     <th>处理时间</th>
@@ -74,13 +77,14 @@
                 <tr>
                     <td class="cell-content"><div class="clamp">{{ r.content }}</div></td>
                     <td><span class="nature nature-{{ nature_class.get(r.nature, 'unknown') }}">{{ r.nature }}</span></td>
+                    <td title="{{ r.risk_model }} · {{ r.risk_reason }}">{% if r.risk_score %}{{ r.risk_score }} / 100{% else %}<span class="muted">—</span>{% endif %}</td>
                     <td>{% if r.fake_probability %}{{ r.fake_probability }}%{% else %}<span class="muted">—</span>{% endif %}</td>
                     <td>{{ r.source }}</td>
                     <td class="cell-time">{{ r.publish_time or '—' }}</td>
                     <td class="cell-time">{{ r.process_time or '—' }}</td>
                 </tr>
                 {% else %}
-                <tr><td colspan="6" class="empty">暂无消息</td></tr>
+                <tr><td colspan="7" class="empty">暂无消息</td></tr>
                 {% endfor %}
             </tbody>
         </table>

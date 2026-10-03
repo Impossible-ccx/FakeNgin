@@ -1,9 +1,11 @@
-"""批量虚假度检测脚本。
+"""批量评分脚本；语言风险分与真假分类概率分别存储。
 
 用法：python src/newscheck.py
-检查当前可用模型，控制台中进行选择后，对所有数据进行虚假度计算。
-检测失败的行会跳过并继续；每 20 行写盘一次，中断不会丢失已完成的结果。
+检查当前可用模型，控制台中进行选择后，对所有数据评分。
+检测失败的行会跳过并继续；每 20 行写盘一次。
 """
+
+import math
 
 import checkmodel
 import webapp.newsdata as nd
@@ -34,19 +36,29 @@ def select_model(models):
 def check_table(model, name, override):
     """检测一张表，返回 (成功数, 失败数)。"""
     newsdf = nd.read_table(name)
+    is_risk = getattr(model, "score_kind", "probability") == "risk"
+    score_column = "risk_score" if is_risk else "fake_probability"
     done = 0
     failed = 0
     for row in newsdf.itertuples():
-        if not override and str(row.fake_probability) != "":
+        if not override and str(getattr(row, score_column)) != "":
             continue
         try:
-            probability, _ = model.check(row.content)
+            score, reason = model.check(row.content)
+            if isinstance(score, bool):
+                raise CheckError("分数无效")
+            score = float(score)
+            if not math.isfinite(score) or not 0 <= score <= 100:
+                raise CheckError("分数必须为 0-100 的有限数值")
         except Exception as exc:
             failed += 1
             print("  第 {} 行检测失败：{}".format(row.Index + 1, exc))
             continue
-        probability = max(0.0, min(100.0, float(probability)))
-        newsdf.loc[row.Index, "fake_probability"] = "{:.2f}".format(probability)
+        newsdf.loc[row.Index, score_column] = "{:.2f}".format(score)
+        if is_risk:
+            newsdf.loc[row.Index, "risk_model"] = model.name
+            newsdf.loc[row.Index, "risk_reason"] = reason
+            newsdf.loc[row.Index, "risk_prompt_version"] = getattr(model, "prompt_version", "")
         done += 1
         if done % CHECKPOINT_EVERY == 0:
             nd.write_table(name, newsdf)

@@ -1,7 +1,10 @@
 """newsdata 消息数据访问层。
 
 database/newsdata/ 下的所有 csv 视为同一张逻辑表，格式一致：
-    content, nature, fake_probability, source, publish_time, process_time
+    content, nature, fake_probability, source, publish_time, process_time,
+    risk_score, risk_model, risk_reason, risk_prompt_version
+
+风险字段与历史真假分类字段分开；旧 CSV 读取时补空列，不推断旧分数含义。
 
 读取时在内存中为每行附加 _file（来源文件名）、_row（文件内行号）、
 _signature（内容指纹），用于确保人工修改/删除命中的确实是目标文件的目标行。
@@ -26,7 +29,12 @@ COLUMNS = [
     "source",
     "publish_time",
     "process_time",
+    "risk_score",
+    "risk_model",
+    "risk_reason",
+    "risk_prompt_version",
 ]
+RISK_COLUMNS = {"risk_score", "risk_model", "risk_reason", "risk_prompt_version"}
 NATURES = ["虚假", "真实", "中立", "未校验"]
 VERIFY_NATURES = ["虚假", "真实", "中立"]
 DEFAULT_NATURE = "未校验"
@@ -152,9 +160,14 @@ def _locate(name, row, signature):
 
 def update_message(name, row, signature, data):
     path, df = _locate(name, row, signature)
+    content_changed = "content" in data and data["content"] != df.at[row, "content"]
     for col in COLUMNS:
         if col in data:
             df.at[row, col] = data[col]
+    if content_changed:
+        # 风险结果只适用于原文；正文修改后允许后续批处理重新评分。
+        for col in RISK_COLUMNS:
+            df.at[row, col] = ""
     _write_path(path, df)
 
 
@@ -168,7 +181,11 @@ def delete_message(name, row, signature):
 
 def normalize_row(form):
     """把表单数据规范化为一行标准消息。表单缺省字段按空处理。"""
-    return {col: normalize_value(col, form.get(col, "")) for col in COLUMNS}
+    # 旧的消息编辑表单不负责机器风险字段，避免一次编辑清空已有风险结果。
+    return {
+        col: normalize_value(col, form.get(col, ""))
+        for col in COLUMNS if col not in RISK_COLUMNS
+    }
 
 
 def normalize_value(field, value):

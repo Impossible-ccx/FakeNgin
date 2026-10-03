@@ -12,9 +12,9 @@ MODEL_NAME = "glm4:9b"
 class Ollama_GLM4(OllamaModel):
     name = "glm4_9b"
     display_name = "GLM-4-9B (Ollama)"
-    description = "本地 Ollama 大模型 glm4:9b，根据消息内容给出虚假概率与理由。"
+    description = "按相同风险标准独立评估消息，返回风险评分和理由。"
     model_name = MODEL_NAME
-    temperature = 0.5
+    temperature = 0
 
 
 MODEL_CLASS = Ollama_GLM4
