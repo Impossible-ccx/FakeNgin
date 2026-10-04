@@ -1,47 +1,41 @@
-document.addEventListener("DOMContentLoaded", function () {
-    function showEdit(button) {
-        var viewRow = button.closest("tr");
-        var editRow = viewRow.nextElementSibling;
-        if (!editRow) return;
-        viewRow.hidden = true;
-        editRow.hidden = false;
-    }
-
-    function hideEdit(button) {
-        var editRow = button.closest("tr");
-        var viewRow = editRow.previousElementSibling;
-        if (!viewRow) return;
-        editRow.hidden = true;
-        viewRow.hidden = false;
-    }
-
-    function showDeleteConfirm(button) {
-        var ops = button.closest(".ops-col");
-        ops.querySelector(".js-edit").hidden = true;
-        button.hidden = true;
-        ops.querySelector(".del-confirm").hidden = false;
-    }
-
-    function hideDeleteConfirm(button) {
-        var ops = button.closest(".ops-col");
-        ops.querySelector(".del-confirm").hidden = true;
-        ops.querySelector(".js-edit").hidden = false;
-        ops.querySelector(".js-del").hidden = false;
-    }
-
-    document.querySelectorAll(".js-edit").forEach(function (button) {
-        button.addEventListener("click", function () { showEdit(button); });
+(function () {
+    'use strict';
+    var focused = document.querySelector('[data-verify-focused]');
+    if (focused) focused.focus({preventScroll: true});
+    document.querySelectorAll('[data-verify-cancel]').forEach(function (button) {
+        button.hidden = false;
+        button.addEventListener('click', function () {
+            var details = button.closest('details');
+            if (!details) return;
+            var form = button.closest('form');
+            if (form) form.reset();
+            details.open = false;
+            details.querySelector('summary').focus();
+        });
     });
-
-    document.querySelectorAll(".js-cancel").forEach(function (button) {
-        button.addEventListener("click", function () { hideEdit(button); });
+    document.querySelectorAll('.verify-record-editor, .verify-record-delete').forEach(function (details) {
+        details.addEventListener('toggle', function () {
+            if (!details.open) return;
+            var siblingDetails = details.parentElement.querySelectorAll(':scope > details');
+            siblingDetails.forEach(function (other) { if (other !== details) other.open = false; });
+            var input = details.querySelector('textarea, button[type="submit"]');
+            if (input) input.focus({preventScroll: true});
+        });
     });
-
-    document.querySelectorAll(".js-del").forEach(function (button) {
-        button.addEventListener("click", function () { showDeleteConfirm(button); });
+    document.querySelectorAll('[data-verify-form]').forEach(function (form) {
+        form.addEventListener('submit', function (event) {
+            if (form.dataset.submitting === 'true') { event.preventDefault(); return; }
+            if (!form.reportValidity()) { event.preventDefault(); return; }
+            form.dataset.submitting = 'true';
+            form.setAttribute('aria-busy', 'true');
+            form.querySelectorAll('button[type="submit"]').forEach(function (button) { button.disabled = true; });
+        });
     });
-
-    document.querySelectorAll(".js-del-cancel").forEach(function (button) {
-        button.addEventListener("click", function () { hideDeleteConfirm(button); });
+    window.addEventListener('pageshow', function () {
+        document.querySelectorAll('[data-verify-form]').forEach(function (form) {
+            delete form.dataset.submitting;
+            form.removeAttribute('aria-busy');
+            form.querySelectorAll('button[type="submit"]').forEach(function (button) { button.disabled = false; });
+        });
     });
-});
+})();

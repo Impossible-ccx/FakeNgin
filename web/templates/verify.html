@@ -1,231 +1,72 @@
 {% extends "base.html" %}
-{% set nature_class = {'虚假': 'fake', '真实': 'real', '中立': 'neutral', '未校验': 'unknown'} %}
+{% set nature_class = {'虚假':'fake','真实':'real','中立':'neutral','未校验':'unknown'} %}
+{% macro target_fields(row) %}
+<input type="hidden" name="_file" value="{{ row['_file'] }}">
+<input type="hidden" name="_row" value="{{ row['_row'] }}">
+<input type="hidden" name="_signature" value="{{ row['_signature'] }}">
+<input type="hidden" name="page" value="{{ page }}">
+<input type="hidden" name="status" value="{{ status }}">
+{% endmacro %}
+{% macro editable_fields(row, prefix) %}
+<div class="form-grid">
+    <label class="field field-wide" for="{{ prefix }}-content"><span>消息内容</span><textarea id="{{ prefix }}-content" name="content" rows="4" maxlength="{{ max_message_length }}" required>{{ row.content if row else '' }}</textarea></label>
+    <label class="field" for="{{ prefix }}-source"><span>消息来源</span><input id="{{ prefix }}-source" name="source" maxlength="200" value="{{ row.source if row else '' }}"></label>
+    <label class="field" for="{{ prefix }}-score"><span>历史分类分数（%）</span><input id="{{ prefix }}-score" type="number" name="fake_probability" min="0" max="100" step="0.01" value="{{ row.fake_probability if row else '' }}"></label>
+    <label class="field" for="{{ prefix }}-nature"><span>消息性质</span><select id="{{ prefix }}-nature" name="nature">{% for nature in nature_options %}<option value="{{ nature }}" {% if (row and row.nature == nature) or (not row and nature == '未校验') %}selected{% endif %}>{{ nature }}</option>{% endfor %}</select></label>
+    <label class="field" for="{{ prefix }}-publish"><span>消息发出时间</span><input id="{{ prefix }}-publish" name="publish_time" value="{{ row.publish_time if row else now }}" placeholder="YYYY-MM-DD HH:MM:SS"></label>
+    <label class="field" for="{{ prefix }}-process"><span>消息处理时间</span><input id="{{ prefix }}-process" name="process_time" value="{{ row.process_time if row else '' }}" placeholder="YYYY-MM-DD HH:MM:SS"></label>
+</div>
+{% endmacro %}
 
-{% block title %}FakeNgin · 人工校验系统{% endblock %}
-
+{% block title %}FakeNgin · 人工校验{% endblock %}
 {% block content %}
-<section class="panel">
-    <div class="panel-head">
-        <h2>全部消息</h2>
-        <span class="panel-meta">共 {{ total }} 条 · 第 {{ page }} / {{ total_pages }} 页</span>
-    </div>
+<header class="panel-head"><div><h1>人工校验</h1><p class="muted">待校验 {{ unverified_count }} 条 · 已校验 {{ reviewed_count }} 条</p></div></header>
+{% if focus_error %}<div class="notice notice-error" role="alert">无法定位消息：{{ focus_error }}。请重新从数据或搜索页面选择。</div>{% endif %}
 
-    <div class="table-wrap">
-        <table class="msg-table">
-            <thead>
-                <tr>
-                    <th>消息内容</th>
-                    <th>性质</th>
-                    <th>虚假概率</th>
-                    <th>来源</th>
-                    <th>发出时间</th>
-                    <th>处理时间</th>
-                    <th class="ops-col">操作</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for r in rows %}
-                {% set i = loop.index %}
-                <tr class="view-row">
-                    <td class="cell-content">
-                        <div class="clamp">{{ r.content }}</div>
-                    </td>
-                    <td><span class="nature nature-{{ nature_class.get(r.nature, 'unknown') }}">{{ r.nature }}</span>
-                    </td>
-                    <td>{% if r.fake_probability %}{{ r.fake_probability }}%{% else %}<span class="muted">—</span>{%
-                        endif %}</td>
-                    <td>{{ r.source }}</td>
-                    <td class="cell-time">{{ r.publish_time or '—' }}</td>
-                    <td class="cell-time">{{ r.process_time or '—' }}</td>
-                    <td class="ops-col">
-                        <button type="button" class="btn btn-primary btn-sm js-edit">修改</button>
-                        <button type="button" class="btn btn-sm btn-danger js-del">删除</button>
-                        <span class="del-confirm" hidden>
-                            <span class="del-text">确认删除？</span>
-                            <button type="submit" class="btn btn-sm btn-danger" form="del-form-{{ i }}">确认</button>
-                            <button type="button" class="btn btn-sm js-del-cancel">取消</button>
-                        </span>
-                    </td>
-                </tr>
-                <tr class="edit-row" hidden>
-                    <td colspan="7">
-                        <div class="form-grid">
-                            <label class="field field-wide">
-                                <span>消息内容</span>
-                                <textarea form="edit-form-{{ i }}" name="content" rows="2">{{ r.content }}</textarea>
-                            </label>
-                            <label class="field">
-                                <span>消息来源</span>
-                                <input form="edit-form-{{ i }}" type="text" name="source" value="{{ r.source }}">
-                            </label>
-                            <label class="field">
-                                <span>虚假概率（%）</span>
-                                <input form="edit-form-{{ i }}" type="number" name="fake_probability" min="0" max="100"
-                                    step="0.01" value="{{ r.fake_probability }}">
-                            </label>
-                            <div class="field">
-                                <span>消息性质</span>
-                                <div class="radio-group">
-                                    {% for n in nature_options %}
-                                    <label class="radio">
-                                        <input form="edit-form-{{ i }}" type="radio" name="nature" value="{{ n }}" {% if
-                                            r.nature==n %}checked{% endif %}>
-                                        {{ n }}
-                                    </label>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                            <label class="field">
-                                <span>消息发出时间</span>
-                                <input form="edit-form-{{ i }}" type="text" name="publish_time"
-                                    value="{{ r.publish_time }}" placeholder="YYYY-MM-DD HH:MM:SS">
-                            </label>
-                            <label class="field">
-                                <span>消息处理时间</span>
-                                <input form="edit-form-{{ i }}" type="text" name="process_time"
-                                    value="{{ r.process_time }}" placeholder="YYYY-MM-DD HH:MM:SS">
-                            </label>
-                        </div>
-                        <div class="form-actions">
-                            <button type="submit" class="btn btn-primary btn-sm" form="edit-form-{{ i }}">保存修改</button>
-                            <button type="button" class="btn btn-sm js-cancel">取消</button>
-                        </div>
-                    </td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td colspan="7" class="empty">暂无消息</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <div class="pagination">
-        {% if page > 1 %}
-        <a class="btn btn-sm" href="{{ url_for('main.verify', page=page-1) }}">上一页</a>
-        {% else %}
-        <span class="btn btn-sm btn-disabled">上一页</span>
-        {% endif %}
-        <span class="page-info">第 {{ page }} / {{ total_pages }} 页</span>
-        {% if page < total_pages %} <a class="btn btn-sm" href="{{ url_for('main.verify', page=page+1) }}">下一页</a>
-            {% else %}
-            <span class="btn btn-sm btn-disabled">下一页</span>
-            {% endif %}
-    </div>
-</section>
-
-<section class="panel">
-    <div class="panel-head">
-        <h2>消息校验</h2>
-        <span class="panel-meta">逐条设置消息性质</span>
-    </div>
-
+<section id="verify-queue" class="panel" {% if focus_row %}data-verify-focused tabindex="-1"{% endif %}>
+    <div class="panel-head"><h2>{{ '校验选中的消息' if focus_row else '待校验队列' }}</h2><span class="panel-meta">校验结果保存在当前数据集中</span></div>
     {% if check_state == 'ready' %}
     <div class="check-card">
-        <p class="check-content">{{ check_row.content }}</p>
-        <div class="check-meta">
-            <span>来源：{{ check_row.source or '—' }}</span>
-            <span>发出时间：{{ check_row.publish_time or '—' }}</span>
-            <span>现有虚假概率：{% if check_row.fake_probability %}{{ check_row.fake_probability }}%{% else %}—{% endif
-                %}</span>
-        </div>
+        <p class="check-content" style="overflow-wrap:anywhere">{{ check_row.content }}</p>
+        <div class="check-meta"><span>来源：{{ check_row.source or '—' }}</span><span>发出时间：{{ check_row.publish_time or '—' }}</span><span>当前性质：{{ check_row.nature or '未校验' }}</span><span>历史分类分数：{{ check_row.fake_probability ~ '%' if check_row.fake_probability != '' else '—' }}</span></div>
         <div class="check-actions">
-            <form method="post" action="{{ url_for('main.verify_check') }}" class="check-form">
-                <input type="hidden" name="_file" value="{{ check_row['_file'] }}">
-                <input type="hidden" name="_row" value="{{ check_row['_row'] }}">
-                <input type="hidden" name="_signature" value="{{ check_row['_signature'] }}">
-                <div class="radio-group">
-                    {% for n in verify_natures %}
-                    <label class="radio">
-                        <input type="radio" name="nature" value="{{ n }}" required>
-                        {{ n }}
-                    </label>
-                    {% endfor %}
-                </div>
-                <button type="submit" class="btn btn-primary">确认校验</button>
+            <form method="post" action="{{ url_for('main.verify_check') }}" class="check-form" data-verify-form>
+                {{ target_fields(check_row) }}
+                <div class="radio-group">{% for nature in verify_natures %}<label class="radio"><input type="radio" name="nature" value="{{ nature }}" required {% if check_row.nature == nature %}checked{% endif %}>{{ nature }}</label>{% endfor %}</div>
+                <button type="submit" class="btn btn-primary">确认校验并继续</button>
             </form>
-            <form method="post" action="{{ url_for('main.verify_skip') }}">
-                <input type="hidden" name="_file" value="{{ check_row['_file'] }}">
-                <input type="hidden" name="_signature" value="{{ check_row['_signature'] }}">
-                <button type="submit" class="btn btn-sm">跳过</button>
-            </form>
+            {% if check_row.nature not in verify_natures %}<form method="post" action="{{ url_for('main.verify_skip') }}" data-verify-form>{{ target_fields(check_row) }}<button type="submit" class="btn btn-sm">跳过这条</button></form>{% endif %}
         </div>
+        {% if focus_row %}<p><a class="btn btn-sm" href="{{ url_for('main.verify',status=status) }}">返回待校验队列</a></p>{% endif %}
     </div>
-    {% elif check_state == 'all_skipped' %}
-    <p class="check-notice">当前没有可校验的消息（未校验消息均已被跳过）。</p>
-    <form method="post" action="{{ url_for('main.verify_reset_skip') }}">
-        <button type="submit" class="btn btn-sm">重置跳过列表</button>
-    </form>
-    {% else %}
-    <p class="check-notice">所有消息都已完成校验。</p>
-    {% endif %}
+    {% elif check_state == 'all_skipped' %}<p class="check-notice">待校验的消息均已暂时跳过，可以恢复队列继续校验。</p>
+    {% else %}<p class="check-notice">{{ '所有消息都已完成校验。' if total else '导入或添加消息后，即可开始人工校验。' }}</p>{% endif %}
+    {% if skipped_count %}<form method="post" action="{{ url_for('main.verify_reset_skip') }}" data-verify-form><input type="hidden" name="status" value="{{ status }}"><button type="submit" class="btn btn-sm">恢复 {{ skipped_count }} 条已跳过消息</button></form>{% endif %}
 </section>
 
-<section class="panel">
-    <div class="panel-head">
-        <h2>添加消息</h2>
-        <span class="panel-meta">人工添加的消息将保存至 manual.csv</span>
-    </div>
-
-    <form method="post" action="{{ url_for('main.verify_add') }}">
-        <input type="hidden" name="page" value="{{ page }}">
-        <div class="form-grid">
-            <label class="field field-wide">
-                <span>消息内容</span>
-                <textarea name="content" rows="2" placeholder="请输入消息内容"></textarea>
-            </label>
-            <label class="field">
-                <span>消息来源</span>
-                <input type="text" name="source" placeholder="来源">
-            </label>
-            <label class="field">
-                <span>虚假概率（%）</span>
-                <input type="number" name="fake_probability" min="0" max="100" step="0.01" placeholder="0 - 100">
-            </label>
-            <div class="field">
-                <span>消息性质</span>
-                <div class="radio-group">
-                    {% for n in nature_options %}
-                    <label class="radio">
-                        <input type="radio" name="nature" value="{{ n }}" {% if n=='未校验' %}checked{% endif %}>
-                        {{ n }}
-                    </label>
-                    {% endfor %}
-                </div>
-            </div>
-            <label class="field">
-                <span>消息发出时间</span>
-                <input type="text" name="publish_time" value="{{ now }}" placeholder="YYYY-MM-DD HH:MM:SS">
-            </label>
-            <label class="field">
-                <span>消息处理时间</span>
-                <input type="text" name="process_time" placeholder="YYYY-MM-DD HH:MM:SS">
-            </label>
-        </div>
-        <div class="form-actions">
-            <button type="submit" class="btn btn-primary">添加消息</button>
-        </div>
-    </form>
+<section id="verify-records" class="panel">
+    <div class="panel-head"><h2>消息列表</h2><span class="panel-meta">筛选 {{ filtered_total }} / 共 {{ total }} 条 · 第 {{ page }} / {{ total_pages }} 页</span></div>
+    <nav class="pagination" aria-label="校验状态筛选" data-verify-status-filter>
+        {% for value,label,count in [('all','全部',total),('pending','待校验',unverified_count),('reviewed','已校验',reviewed_count)] %}
+        <a class="btn btn-sm {% if status == value %}btn-primary{% endif %}" href="{{ url_for('main.verify',status=value) }}" {% if status == value %}aria-current="page"{% endif %}>{{ label }} {{ count }}</a>
+        {% endfor %}
+    </nav>
+    <div class="table-wrap"><table class="msg-table"><thead><tr><th>消息内容</th><th>性质</th><th>来源</th><th>处理时间</th><th>操作</th></tr></thead><tbody>
+        {% for row in rows %}
+        <tr id="{{ row.verify_anchor }}" class="verify-record {% if row.is_focused %}verify-record-focused{% endif %}">
+            <td class="cell-content"><details><summary>{{ row.content | truncate(100) }}</summary><p style="white-space:pre-wrap;overflow-wrap:anywhere">{{ row.content }}</p></details></td>
+            <td><span class="nature nature-{{ nature_class.get(row.nature,'unknown') }}">{{ row.nature or '未校验' }}</span></td><td>{{ row.source or '—' }}</td><td class="cell-time">{{ row.process_time or '—' }}</td>
+            <td><div class="verify-record-actions">
+                <a class="btn btn-sm" href="{{ url_for('main.verify',file=row['_file'],row=row['_row'],signature=row['_signature'],status=status) }}">定位校验</a>
+                <details class="verify-record-editor"><summary class="btn btn-sm">修改</summary><form method="post" action="{{ url_for('main.verify_update') }}" data-verify-form>{{ target_fields(row) }}{{ editable_fields(row,row.verify_anchor) }}<div class="form-actions"><button type="submit" class="btn btn-primary btn-sm">保存修改</button><button type="button" class="btn btn-sm" data-verify-cancel hidden>取消</button></div></form></details>
+                <details class="verify-record-delete"><summary class="btn btn-sm btn-danger">删除</summary><form method="post" action="{{ url_for('main.verify_delete') }}" data-verify-form>{{ target_fields(row) }}<p>确认删除这条消息？</p><button type="submit" class="btn btn-sm btn-danger">确认删除</button><button type="button" class="btn btn-sm" data-verify-cancel hidden>取消</button></form></details>
+            </div></td>
+        </tr>
+        {% else %}<tr><td colspan="5" class="empty">当前筛选没有消息</td></tr>{% endfor %}
+    </tbody></table></div>
+    <nav class="pagination" aria-label="消息分页">{% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('main.verify',page=page-1,status=status) }}">上一页</a>{% else %}<span class="btn btn-sm btn-disabled">上一页</span>{% endif %}<span class="page-info">第 {{ page }} / {{ total_pages }} 页</span>{% if page < total_pages %}<a class="btn btn-sm" href="{{ url_for('main.verify',page=page+1,status=status) }}">下一页</a>{% else %}<span class="btn btn-sm btn-disabled">下一页</span>{% endif %}</nav>
 </section>
 
-{% for r in rows %}
-{% set i = loop.index %}
-<form id="edit-form-{{ i }}" method="post" action="{{ url_for('main.verify_update') }}" hidden>
-    <input type="hidden" name="_file" value="{{ r['_file'] }}">
-    <input type="hidden" name="_row" value="{{ r['_row'] }}">
-    <input type="hidden" name="_signature" value="{{ r['_signature'] }}">
-    <input type="hidden" name="page" value="{{ page }}">
-</form>
-<form id="del-form-{{ i }}" method="post" action="{{ url_for('main.verify_delete') }}" hidden>
-    <input type="hidden" name="_file" value="{{ r['_file'] }}">
-    <input type="hidden" name="_row" value="{{ r['_row'] }}">
-    <input type="hidden" name="_signature" value="{{ r['_signature'] }}">
-    <input type="hidden" name="page" value="{{ page }}">
-</form>
-{% endfor %}
+<section class="panel"><div class="panel-head"><h2>添加消息</h2><span class="panel-meta">加入当前数据集</span></div><form method="post" action="{{ url_for('main.verify_add') }}" data-verify-form><input type="hidden" name="page" value="{{ page }}"><input type="hidden" name="status" value="{{ status }}">{{ editable_fields(none,'verify-add') }}<div class="form-actions"><button type="submit" class="btn btn-primary">添加消息</button></div></form></section>
 {% endblock %}
-
-{% block scripts %}
-<script src="{{ url_for('static', filename='js/verify.js') }}"></script>
-{% endblock %}
+{% block scripts %}<script src="{{ url_for('static',filename='js/verify.js') }}" defer></script>{% endblock %}
