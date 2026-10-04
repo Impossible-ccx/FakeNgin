@@ -103,6 +103,21 @@ class ModelRefreshRouteTests(unittest.TestCase):
         self.available_models.assert_not_called()
         self.get_model.assert_not_called()
 
+    def test_four_registered_candidates_are_refreshed_and_displayed_with_three_default_selections(self):
+        fourth_id = helpers.register_fourth_adapter(self)
+        response = self.client.get("/data")
+        self.assertEqual(response.status_code, 200)
+        context = self.contexts[-1][1]
+        self.assertEqual(len(context["models"]), 4)
+        self.assertEqual(context["default_selected_ids"], helpers.RISK_IDS)
+        self.assertEqual(context["default_mode"], "vote")
+        self.available_models.assert_not_called()
+        refreshed = self.client.post("/data/models/refresh", headers={"Accept": "application/json"})
+        self.assertEqual(refreshed.get_json()["available_count"], 4)
+        self.assertEqual(refreshed.get_json()["models"][-1]["display_name"], "分析模型 4")
+        self.available_models.assert_called_once_with(model_ids=helpers.RISK_IDS + [fourth_id], refresh=True)
+        self.get_model.assert_not_called()
+
     def test_failed_refresh_has_safe_error_and_does_not_fall_back_to_probe_on_render(self):
         self.available_models.side_effect = RuntimeError("PRIVATE_HOST_ADDRESS")
         response = self.client.post("/data/models/refresh", headers={"Accept": "application/json"})

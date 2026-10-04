@@ -9,24 +9,6 @@ from .base import CheckError, RiskAbstention
 
 
 MAX_MESSAGE_LENGTH = 6000
-RISK_MODELS = (
-    {
-        "id": "qwen2.5_7b",
-        "display_name": "Qwen2.5-7B (Ollama)",
-        "description": "使用 Qwen2.5-7B 评估消息的语言风险。",
-    },
-    {
-        "id": "deepseek_r1",
-        "display_name": "DeepSeek-R1 (Ollama)",
-        "description": "使用 DeepSeek-R1 评估消息的语言风险。",
-    },
-    {
-        "id": "glm4_9b",
-        "display_name": "GLM-4-9B (Ollama)",
-        "description": "使用 GLM-4-9B 评估消息的语言风险。",
-    },
-)
-_MODEL_BY_ID = {model["id"]: model for model in RISK_MODELS}
 _LEVEL_LABELS = {
     "low": "低风险",
     "medium": "中风险",
@@ -35,15 +17,29 @@ _LEVEL_LABELS = {
 }
 
 
-def get_risk_models():
-    """只展示当前可用的风险模型，不改变固定的风险模型元数据。"""
+def get_registered_risk_models(refresh=False):
+    """风险候选来自模型工厂的登记协议，不依赖型号或当前连接状态。"""
+    registered = (checkmodel.get_registered_models(score_kind="risk", refresh=True)
+                  if refresh else checkmodel.get_registered_models(score_kind="risk"))
+    return [
+        dict(model) for model in registered
+        if model.get("score_kind") == "risk"
+    ]
+
+
+def get_risk_models(refresh=False):
+    """只探测已登记的风险适配器，名单保持登记顺序且不修改登记信息。"""
+    registered = get_registered_risk_models(refresh=refresh)
+    model_ids = [model["id"] for model in registered]
+    available = (checkmodel.get_models(model_ids=model_ids, refresh=True)
+                 if refresh else checkmodel.get_models(model_ids=model_ids))
     available_ids = {
-        model["id"] for model in checkmodel.get_models(model_ids=[model["id"] for model in RISK_MODELS])
+        model["id"] for model in available
         if model.get("available", True) and model.get("score_kind", "risk") == "risk"
     }
     return [
         {**model, "available": True}
-        for model in RISK_MODELS if model["id"] in available_ids
+        for model in registered if model["id"] in available_ids
     ]
 
 
@@ -58,9 +54,10 @@ def _validate_request(message, model_ids, mode):
     if not isinstance(model_ids, (list, tuple)):
         raise ValueError("请选择检测模型")
 
+    registered_ids = {model["id"] for model in get_registered_risk_models()}
     selected = []
     for model_id in model_ids:
-        if not isinstance(model_id, str) or model_id not in _MODEL_BY_ID:
+        if not isinstance(model_id, str) or model_id not in registered_ids:
             raise ValueError("所选模型不能参与语言风险检测")
         if model_id in selected:
             raise ValueError("不能重复选择同一个风险模型")
@@ -96,10 +93,10 @@ def _validate_output(output):
     return score, _risk_level(score), reason.strip()
 
 
-def _empty_member(model_id, status="error"):
+def _empty_member(model_id, metadata, status="error"):
     return {
         "id": model_id,
-        "display_name": _MODEL_BY_ID[model_id]["display_name"],
+        "display_name": metadata["display_name"],
         "status": status,
         "score": None,
         "level": None,
@@ -110,9 +107,9 @@ def _empty_member(model_id, status="error"):
     }
 
 
-def _check_member(message, model_id):
+def _check_member(message, model_id, metadata):
     started = perf_counter()
-    member = _empty_member(model_id)
+    member = _empty_member(model_id, metadata)
     try:
         try:
             model = checkmodel.get_model(model_id)
@@ -210,11 +207,12 @@ def _aggregate_result(members, selected, mode, started):
 def iter_risk_check(message, model_ids, mode="vote"):
     """先发送开始事件，再逐个调用本地模型；只有完整执行后才聚合结果。"""
     message, selected = validate_risk_request(message, model_ids, mode)
+    metadata = {model["id"]: model for model in get_registered_risk_models()}
     started = perf_counter()
     members = []
     for model_id in selected:
-        yield {"type": "member_start", "member": _empty_member(model_id, "running")}
-        member = _check_member(message, model_id)
+        yield {"type": "member_start", "member": _empty_member(model_id, metadata[model_id], "running")}
+        member = _check_member(message, model_id, metadata[model_id])
         members.append(member)
         yield {"type": "member_complete", "member": dict(member)}
     yield {"type": "complete", "result": _aggregate_result(members, selected, mode, started)}

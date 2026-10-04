@@ -117,6 +117,20 @@ class BatchDataTests(unittest.TestCase):
         self.assertIn('href="/verify"', html)
         self.get_model.assert_not_called()
 
+    def test_fourth_registered_adapter_participates_in_a_three_member_batch_vote(self):
+        fourth_id = helpers.register_fourth_adapter(self)
+        refs = self.seed_rows(["使用新登记模型进行批量检测"])
+        selected = helpers.RISK_IDS[:2] + [fourth_id]
+        created = self.create_job(refs, model_ids=selected)
+        job = self.run_job(created["job_id"])
+        self.assertEqual(job["status"], "completed")
+        self.assertEqual(job["saved_count"], 1)
+        report = reports.get_report(job["items"][0]["record_id"])
+        self.assertEqual(report["model_ids"], selected)
+        self.assertEqual([member["id"] for member in report["result"]["members"]], selected)
+        self.assertEqual(report["result"]["decision_method"], "majority")
+        self.model_instances[helpers.RISK_IDS[2]].check.assert_not_called()
+
     def test_import_text_and_csv_preserve_chinese_and_never_start_detection(self):
         response = self.import_text("第一条消息\n\n第二条消息\n")
         self.assertEqual(response.status_code, 201)

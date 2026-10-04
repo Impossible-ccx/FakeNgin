@@ -225,6 +225,17 @@ class ProgressTests(unittest.TestCase):
         self.assertEqual(validate_risk_request("  消息  ", RISK_IDS[:1], "single"), ("消息", RISK_IDS[:1]))
         self.get_model.assert_not_called()
 
+    def test_fourth_registered_adapter_streams_with_stable_number_and_raw_report_identity(self):
+        fourth_id = helpers.register_fourth_adapter(self)
+        events = self.complete(model_ids=[fourth_id], mode="single")
+        started = events[0]["member"]
+        self.assertEqual(started["id"], fourth_id)
+        self.assertEqual(started["ui_display_name"], "分析模型 4")
+        record = reports.get_report(events[-1]["record_id"])
+        self.assertEqual(record["model_ids"], [fourth_id])
+        self.assertEqual(record["result"]["members"][0]["display_name"], helpers.FOURTH_MODEL["display_name"])
+        self.get_model.assert_called_once_with(fourth_id)
+
 
 if __name__ == "__main__":
     unittest.main()

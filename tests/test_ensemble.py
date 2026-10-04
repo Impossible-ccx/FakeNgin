@@ -9,14 +9,24 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from checkmodel.base import CheckError, RiskAbstention
-from checkmodel import ensemble
 from checkmodel.ensemble import MAX_MESSAGE_LENGTH, get_risk_models, run_risk_check
 
 
 MODEL_IDS = ["qwen2.5_7b", "deepseek_r1", "glm4_9b"]
+MODEL_REGISTRY = [
+    {"id": model_id, "display_name": "测试风险适配器 {}".format(index),
+     "description": "隔离测试适配器", "score_kind": "risk"}
+    for index, model_id in enumerate(MODEL_IDS, 1)
+]
 
 
 class RiskVotingTests(unittest.TestCase):
+    def setUp(self):
+        self.registry = deepcopy(MODEL_REGISTRY)
+        registration = patch("checkmodel.get_registered_models", return_value=self.registry)
+        self.registered_models = registration.start()
+        self.addCleanup(registration.stop)
+
     def run_check(self, outputs, model_ids=None, mode="vote"):
         selected = MODEL_IDS if model_ids is None else model_ids
 
@@ -271,16 +281,14 @@ class RiskVotingTests(unittest.TestCase):
         self.assertTrue(all(model["display_name"] and model["description"] for model in models))
 
     def test_listing_does_not_mutate_factory_metadata_or_the_risk_registry(self):
-        original_roster = deepcopy(ensemble.RISK_MODELS)
-        original_lookup = deepcopy(ensemble._MODEL_BY_ID)
+        original_roster = deepcopy(self.registry)
         factory_models = [{"id": MODEL_IDS[0]}, {"id": "roberta_rumor"}]
         original_factory_models = deepcopy(factory_models)
         with patch("checkmodel.ensemble.checkmodel.get_models", return_value=factory_models):
             models = get_risk_models()
         models[0]["display_name"] = "changed UI label"
         self.assertEqual(factory_models, original_factory_models)
-        self.assertEqual(ensemble.RISK_MODELS, original_roster)
-        self.assertEqual(ensemble._MODEL_BY_ID, original_lookup)
+        self.assertEqual(self.registry, original_roster)
         with patch("checkmodel.ensemble.checkmodel.get_models", return_value=[]):
             self.assertEqual(get_risk_models(), [])
         result = self.run_check(self.scores(80, 90, 10))

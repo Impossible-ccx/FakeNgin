@@ -1,14 +1,13 @@
 """网页中的稳定模型名称，不改变实际推理和报告标识。"""
 
 import checkmodel
-from checkmodel.ensemble import RISK_MODELS, get_risk_models
-
-_NUMBERS = {model["id"]: index for index, model in enumerate(RISK_MODELS, 1)}
+from checkmodel.ensemble import get_registered_risk_models, get_risk_models
 
 
 def model_label(member, index=None):
     model_id = member.get("id") if isinstance(member, dict) else member
-    number = _NUMBERS.get(model_id, index)
+    numbers = {model["id"]: position for position, model in enumerate(get_registered_risk_models(), 1)}
+    number = numbers.get(model_id, index)
     return "分析模型 {}".format(number) if number is not None else "分析模型"
 
 
@@ -29,7 +28,7 @@ def list_web_models(cached_only=False, refresh=False):
 
 def list_cached_web_models():
     """用于普通页面渲染，不连接本地模型服务，也不读取模型权重。"""
-    risk_ids = [model["id"] for model in RISK_MODELS]
+    risk_ids = [model["id"] for model in get_registered_risk_models()]
     cached = checkmodel.get_cached_models(model_ids=risk_ids)
     return _web_metadata([
         model for model in cached
@@ -39,12 +38,7 @@ def list_cached_web_models():
 
 def refresh_web_models():
     """仅在用户请求检测连接时刷新风险模型名单，分类器不参与探测。"""
-    risk_ids = [model["id"] for model in RISK_MODELS]
-    models = checkmodel.get_models(model_ids=risk_ids, refresh=True)
-    return _web_metadata([
-        model for model in models
-        if model.get("available", True) and model.get("score_kind", "risk") == "risk"
-    ])
+    return _web_metadata(get_risk_models(refresh=True))
 
 
 def validate_web_source(source=None):

@@ -43,7 +43,7 @@ def _context():
     mode = "vote" if len(available_ids) > 1 else "single"
     if current_job and len(available_ids) > 1:
         mode = current_job["mode"]
-    selected_ids = preferred_ids if len(preferred_ids) > 1 else available_ids
+    selected_ids = (preferred_ids if len(preferred_ids) > 1 else available_ids)[:3]
     if mode == "single":
         selected_ids = (preferred_ids or available_ids)[:1]
     return dict(

@@ -18,11 +18,24 @@ from webapp import create_app, db, newsdata
 
 
 RISK_MODELS = [
-    {"id": "qwen2.5_7b", "display_name": "Qwen2.5-7B (Ollama)", "description": "Qwen risk model"},
-    {"id": "deepseek_r1", "display_name": "DeepSeek-R1 (Ollama)", "description": "DeepSeek risk model"},
-    {"id": "glm4_9b", "display_name": "GLM-4-9B (Ollama)", "description": "GLM risk model"},
+    {"id": "qwen2.5_7b", "display_name": "Qwen2.5-7B (Ollama)", "description": "Qwen risk model", "score_kind": "risk"},
+    {"id": "deepseek_r1", "display_name": "DeepSeek-R1 (Ollama)", "description": "DeepSeek risk model", "score_kind": "risk"},
+    {"id": "glm4_9b", "display_name": "GLM-4-9B (Ollama)", "description": "GLM risk model", "score_kind": "risk"},
 ]
 RISK_IDS = [model["id"] for model in RISK_MODELS]
+FOURTH_MODEL = {
+    "id": "additional_risk_adapter", "display_name": "额外登记的风险适配器",
+    "description": "测试另一台电脑登记的风险模型", "score_kind": "risk",
+}
+
+
+def register_fourth_adapter(case):
+    registry = [dict(model) for model in RISK_MODELS] + [dict(FOURTH_MODEL)]
+    case.registered_models.return_value = registry
+    case.available_models.return_value = registry
+    case.model_instances[FOURTH_MODEL["id"]] = Mock(
+        score_kind="risk", check=Mock(return_value=(80, "额外模型的风险说明。")))
+    return FOURTH_MODEL["id"]
 
 
 def without_timings(value):
@@ -47,6 +60,9 @@ class DetectRouteTests(unittest.TestCase):
         ))
         self.stack.enter_context(patch.object(newsdata, "NEWSDATA_DIR", self.database_dir / "newsdata"))
         self.available_models = self.stack.enter_context(patch.object(checkmodel, "get_models", return_value=RISK_MODELS))
+        self.registered_models = self.stack.enter_context(patch.object(
+            checkmodel, "get_registered_models", return_value=[dict(model) for model in RISK_MODELS],
+        ))
         self.cached_models = self.stack.enter_context(patch.object(
             checkmodel, "get_cached_models", side_effect=lambda model_ids=None: [
                 {**model, "available": model.get("available", True)}
@@ -116,6 +132,29 @@ class DetectRouteTests(unittest.TestCase):
                 self.assertEqual(context["mode"], "single" if len(ids) == 1 else "vote")
                 self.assertEqual([model["id"] for model in context["models"]], ids)
         self.get_model.assert_not_called()
+
+    def test_four_available_registered_models_all_display_with_only_three_default_votes(self):
+        fourth_id = register_fourth_adapter(self)
+        response = self.client.get("/detect")
+        self.assertEqual(response.status_code, 200)
+        context = self.contexts[-1][1]
+        self.assertEqual([model["id"] for model in context["models"]], RISK_IDS + [fourth_id])
+        self.assertEqual(context["selected_ids"], RISK_IDS)
+        self.assertEqual(context["mode"], "vote")
+        self.assertIn("分析模型 4", response.get_data(as_text=True))
+        self.get_model.assert_not_called()
+
+    def test_fourth_registered_model_can_run_singly_or_vote_with_two_other_models(self):
+        fourth_id = register_fourth_adapter(self)
+        _, single = self.submit(mode="single", models=[fourth_id])
+        self.assertIsNone(single["error"])
+        self.assertEqual(single["result"]["members"][0]["id"], fourth_id)
+        selected = RISK_IDS[:2] + [fourth_id]
+        _, vote = self.submit(models=selected)
+        self.assertIsNone(vote["error"])
+        self.assertEqual([member["id"] for member in vote["result"]["members"]], selected)
+        self.assertEqual(vote["result"]["decision_method"], "majority")
+        self.model_instances[RISK_IDS[2]].check.assert_not_called()
 
     def test_known_models_absent_after_a_page_refresh_return_unavailable_results(self):
         self.available_models.return_value = []

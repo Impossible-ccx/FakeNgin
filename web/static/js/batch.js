@@ -131,7 +131,7 @@
         var selectedMode = connected.length < 2 ? 'single' : modeSelectionEdited ? previousMode : 'vote';
         var selectedIds = previousIds.filter(function (id) { return connected.some(function (item) { return item.id === id; }); });
         if (selectedMode === 'single') selectedIds = selectedIds.length ? selectedIds.slice(0, 1) : connected.slice(0, 1).map(function (item) { return item.id; });
-        else if (!modelSelectionEdited) selectedIds = connected.map(function (item) { return item.id; });
+        else if (!modelSelectionEdited) selectedIds = connected.slice(0, 3).map(function (item) { return item.id; });
         modelList.replaceChildren();
         connected.forEach(function (item, index) {
             var card = node('div', 'risk-model batch-model-card');

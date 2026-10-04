@@ -27,7 +27,7 @@ def _save_completed(context):
 
 def _context(form=None):
     models = list_web_models()
-    selected_ids = [model["id"] for model in models]
+    selected_ids = [model["id"] for model in models][:3]
     context = {
         "models": models,
         "model_labels": {model["id"]: model_label(model["id"]) for model in models},

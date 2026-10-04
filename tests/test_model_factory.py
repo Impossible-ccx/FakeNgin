@@ -14,9 +14,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import checkmodel
 from checkmodel.base import CheckModel
 from checkmodel import ollama_base
+from checkmodel.ensemble import get_risk_models, run_risk_check
 from checkmodel.ollama_qwen25 import Ollama_Qwen25
 from checkmodel.ollama_deepseek import Ollama_DeepSeek
-from webapp.models import list_cached_web_models, refresh_web_models
+from webapp.models import list_cached_web_models, model_label, refresh_web_models
 
 
 class ModelFactoryTests(unittest.TestCase):
@@ -52,6 +53,94 @@ class ModelFactoryTests(unittest.TestCase):
             model.detect.assert_not_called()
             model.initialize.assert_not_called()
         self.assertTrue(all(state.instance is None for state in checkmodel._states.values()))
+
+    def test_registration_is_available_independently_of_connection_or_initialization(self):
+        registered = checkmodel.get_registered_models(score_kind="risk")
+        self.assertEqual([model["id"] for model in registered], ["qwen2.5_7b", "deepseek_r1"])
+        self.assertTrue(all("available" not in model for model in registered))
+        for model in self.classes.values():
+            model.detect.assert_not_called()
+            model.initialize.assert_not_called()
+        self.classes["risk1"].detect.return_value = False
+        self.assertEqual([model["id"] for model in get_risk_models()], ["deepseek_r1"])
+        self.assertEqual(checkmodel.get_registered_models(score_kind="risk"), registered)
+        self.classes["classifier"].detect.assert_not_called()
+
+    def register_more_risk_models(self):
+        for index in (3, 4):
+            module = "portable_risk_{}".format(index)
+            self.classes[module] = type(module, (CheckModel,), {
+                "name": module, "display_name": "适配器 {}".format(index),
+                "description": "额外的风险适配器", "score_kind": "risk",
+                "detect": Mock(return_value=True), "initialize": Mock(),
+                "check": Mock(return_value=(80, "测试风险说明")),
+            })
+            checkmodel.MODEL_MODULES.append(module)
+        for module in ("risk1", "risk2"):
+            self.classes[module].check = Mock(return_value=(80, "测试风险说明"))
+
+    def test_fourth_registered_adapter_is_a_candidate_and_can_be_used_without_other_rosters(self):
+        self.register_more_risk_models()
+        models = get_risk_models()
+        self.assertEqual(len(models), 4)
+        self.assertEqual(models[-1]["id"], "portable_risk_4")
+        self.assertEqual(model_label("portable_risk_4"), "分析模型 4")
+        result = run_risk_check("课程消息", ["portable_risk_4"], "single")
+        self.assertEqual(result["level"], "high")
+        self.assertEqual(result["members"][0]["display_name"], "适配器 4")
+        self.classes["portable_risk_4"].initialize.assert_called_once_with()
+        self.classes["risk1"].initialize.assert_not_called()
+        self.classes["classifier"].detect.assert_not_called()
+
+    def test_registered_offline_fourth_adapter_remains_valid_and_recovers_after_ttl(self):
+        self.register_more_risk_models()
+        fourth = self.classes["portable_risk_4"]
+        fourth.detect.return_value = False
+        available = get_risk_models()
+        self.assertEqual(len(available), 3)
+        self.assertEqual(model_label("portable_risk_4"), "分析模型 4")
+        result = run_risk_check("课程消息", ["qwen2.5_7b", "deepseek_r1", "portable_risk_4"])
+        self.assertEqual(result["members"][-1]["status"], "unavailable")
+        self.assertEqual((result["selected_count"], result["success_count"]), (3, 2))
+        fourth.initialize.assert_not_called()
+        fourth.detect.return_value = True
+        self.advance()
+        recovered = run_risk_check("课程消息", ["portable_risk_4"], "single")
+        self.assertEqual(recovered["members"][0]["status"], "ok")
+        self.assertEqual(model_label("portable_risk_4"), "分析模型 4")
+
+    def test_initialized_adapter_can_go_offline_and_recover_without_reinitializing(self):
+        self.register_more_risk_models()
+        first = checkmodel.get_model("portable_risk_4")
+        fourth = self.classes["portable_risk_4"]
+        fourth.detect.return_value = False
+        self.now[0] += 0.1
+        self.assertEqual(checkmodel.get_models(model_ids=["portable_risk_4"], refresh=True), [])
+        offline = run_risk_check("课程消息", ["portable_risk_4"], "single")
+        self.assertEqual(offline["members"][0]["status"], "unavailable")
+        self.assertIs(checkmodel._instances["portable_risk_4"], first)
+        fourth.detect.return_value = True
+        self.advance()
+        self.assertIs(checkmodel.get_model("portable_risk_4"), first)
+        fourth.initialize.assert_called_once_with()
+
+    def test_unknown_adapter_and_probability_model_are_rejected_before_lookup(self):
+        self.register_more_risk_models()
+        with patch.object(checkmodel, "get_model") as lookup:
+            for model_id in ("unknown_adapter", "roberta_rumor"):
+                with self.subTest(model_id=model_id), self.assertRaises(ValueError):
+                    run_risk_check("课程消息", [model_id], "single")
+            with self.assertRaises(ValueError):
+                run_risk_check("课程消息", [model["id"] for model in checkmodel.get_registered_models(score_kind="risk")])
+            lookup.assert_not_called()
+
+    def test_web_labels_follow_registration_order_and_removed_report_models_use_index(self):
+        self.register_more_risk_models()
+        self.classes["risk1"].detect.return_value = False
+        models = refresh_web_models()
+        self.assertEqual([model["display_name"] for model in models], ["分析模型 2", "分析模型 3", "分析模型 4"])
+        self.assertEqual(model_label({"id": "unregistered_historical_adapter"}, 2), "分析模型 2")
+        self.assertEqual(model_label({"id": "unregistered_historical_adapter"}), "分析模型")
 
     def test_listing_probes_without_initializing_any_weights(self):
         self.assertEqual(len(checkmodel.get_models()), 3)
@@ -96,6 +185,10 @@ class ModelFactoryTests(unittest.TestCase):
         self.now[0] += 0.1
         self.classes["risk1"].detect.return_value = False
         self.assertEqual(checkmodel.get_models(model_ids=["qwen2.5_7b"], refresh=True), [])
+        with self.assertRaises(KeyError):
+            checkmodel.get_model("qwen2.5_7b")
+        self.classes["risk1"].detect.return_value = True
+        self.advance()
         self.assertIs(checkmodel.get_model("qwen2.5_7b"), first)
         self.classes["risk1"].initialize.assert_called_once_with()
 

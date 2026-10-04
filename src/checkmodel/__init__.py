@@ -113,6 +113,21 @@ def get_cached_models(model_ids=None):
     return [state.metadata() for state in _selected_states(model_ids)]
 
 
+def get_registered_models(score_kind=None, refresh=False):
+    """按 MODEL_MODULES 顺序返回登记元信息，不探测、不初始化模型。
+
+    登记和可用性分开：本地服务暂时离线的模型仍然是合法模型。
+    调用方可以按评分协议筛选候选，不需要再维护另一套模型名单。
+    """
+    models = []
+    for state in _registered_states(refresh=refresh):
+        metadata = state.metadata()
+        metadata.pop("available", None)
+        if score_kind is None or metadata["score_kind"] == score_kind:
+            models.append(metadata)
+    return models
+
+
 def get_models(model_ids=None, refresh=False):
     """返回可用模型名单，不初始化权重；可筛选模型或主动刷新探测。"""
     refresh_started = monotonic() if refresh else None
@@ -131,10 +146,10 @@ def get_model(model_id) -> base.CheckModel:
         raise KeyError(model_id)
     state = states[0]
     with state.lock:
-        if state.initialized:
-            return state.instance
         if not _probe_locked(state):
             raise KeyError(model_id)
+        if state.initialized:
+            return state.instance
         try:
             state.instance.initialize()
         except Exception as exc:
