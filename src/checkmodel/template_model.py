@@ -8,7 +8,7 @@ class TemplateModel(CheckModel):
     display_name = "模板模型"
     description = "示例模型：对所有输入固定输出 50% 虚假概率。"
     def detect(self):
-        return False
+        return True
     def initialize(self):
         return 
     def check(self, message):

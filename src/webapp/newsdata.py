@@ -83,6 +83,11 @@ def _write_path(path, df):
     tmp.replace(path)
 
 
+def write_table(name, df):
+    """整表写回（供批量脚本使用），name 需为已存在的表名。"""
+    _write_path(_table_path(name), df)
+
+
 def _signature(row):
     raw = "\x1f".join(str(row[col]) for col in COLUMNS)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]

@@ -1,0 +1,26 @@
+{% if error %}
+<div class="notice notice-error">{{ error }}</div>
+{% elif result %}
+<section class="panel">
+    <div class="panel-head">
+        <h2>检测结果</h2>
+        <span class="panel-meta">使用模型：{{ selected_label }}</span>
+    </div>
+
+    <div class="detect-result detect-{{ result.level }}">
+        <div class="detect-score">{{ result.percentage }}%</div>
+        <div class="detect-warning">{{ result.warning }}</div>
+    </div>
+
+    {% if result.extra_info %}
+    <p class="detect-extra">模型补充信息：{{ result.extra_info }}</p>
+    {% endif %}
+
+    <form method="post" action="{{ url_for('main.detect_save') }}" class="detect-save">
+        <input type="hidden" name="message" value="{{ message }}">
+        <input type="hidden" name="probability" value="{{ result.percentage }}">
+        <input type="hidden" name="model" value="{{ selected }}">
+        <button type="submit" class="btn btn-ghost btn-sm">保存到数据集</button>
+    </form>
+</section>
+{% endif %}
