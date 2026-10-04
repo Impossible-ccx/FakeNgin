@@ -18,7 +18,6 @@ class CheckModel:
     name = ""
     display_name = ""
     description = ""
-    score_kind = "probability"
 
     def initialize(self):
         """加载时初始化，默认无需处理。"""
@@ -31,7 +30,6 @@ class CheckModel:
     def check(self, message) -> tuple[float, str]:
         """检测消息，返回 (0-100 分值, 额外信息字符串)。
 
-        score_kind='risk' 表示风险评分，'probability' 表示分类概率。
-        失败时抛出 CheckError；无法评估风险时抛出 RiskAbstention。
+        失败时抛出 CheckError；无法评估时抛出 RiskAbstention。
         """
         raise NotImplementedError

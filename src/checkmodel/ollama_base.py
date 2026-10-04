@@ -49,7 +49,6 @@ RISK_SCHEMA = {
 
 
 class OllamaModel(CheckModel):
-    score_kind = "risk"
     prompt_version = PROMPT_VERSION
     model_name = ""
     timeout = DEFAULT_TIMEOUT

@@ -76,7 +76,6 @@
                 <div class="verify-record-meta">
                     <span>发出：{{ r.publish_time or '—' }}</span>
                     <span>处理：{{ r.process_time or '—' }}</span>
-                    {% if r.risk_score %}<span>历史模型风险分 <strong>{{ r.risk_score }}</strong> / 100</span>{% endif %}
                     {% if r.fake_probability %}<span>历史分类分数：{{ r.fake_probability }}%</span>{% endif %}
                 </div>
                 <div class="verify-record-tools">

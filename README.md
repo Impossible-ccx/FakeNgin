@@ -33,12 +33,9 @@ python src/app.py
 python src/newscheck.py
 ```
 
-批处理根据 `model.score_kind` 分开存储：
+批量评分统一写入 `fake_probability`。
 
-- 风险模型 → `risk_score`、`risk_model`、`risk_reason`、`risk_prompt_version`。
-- 原有真假分类器 → `fake_probability`。
-
-旧 CSV 读取时为新字段补空值，写回时增加列；原来的分数和标签不会自动转换为风险分。修改来源等元信息时保留已有风险字段，修改正文时清除旧风险结果以便重新评分。
+旧 CSV 读取时缺失字段补空值，写回时按当前列写出。
 
 CLI 仍是单模型批处理，每 20 个成功结果保存一次，单条失败继续；强制中止时最近未保存的结果可能需要重跑。
 

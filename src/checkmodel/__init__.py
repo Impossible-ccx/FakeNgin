@@ -55,7 +55,6 @@ def _ensure_loaded():
             "id": model_class.name,
             "display_name": model_class.display_name,
             "description": model_class.description,
-            "score_kind": getattr(model_class, "score_kind", "probability"),
             "available": available,
         }
         if available:
