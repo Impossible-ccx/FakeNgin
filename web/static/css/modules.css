@@ -38,6 +38,8 @@
 .keyword-input-wrap input:focus { outline:0; }
 .keyword-input-wrap input::placeholder { color:#99a9ba; }
 .keyword-search-form .dash-button { flex-shrink:0; min-height:47px; }
+.keyword-search-mode { display:block; flex-shrink:0; }
+.keyword-search-mode select { height:47px; max-width:170px; padding:0 12px; border:1px solid #d7e3f0; border-radius:9px; background:#fafcfe; color:var(--dash-ink); font:inherit; font-size:14px; }
 .keyword-clear { padding:7px 0 7px 4px; color:#7d91aa; font-size:12px; white-space:nowrap; }
 .keyword-search-help { margin:14px 0 0; color:#8c9db2; font-size:12px; line-height:1.8; }
 .keyword-error { margin-top:18px; }
@@ -180,7 +182,9 @@
     .keyword-search-form { align-items:stretch; flex-wrap:wrap; gap:10px; }
     .keyword-input-wrap { flex-basis:100%; padding:0 11px; gap:9px; }
     .keyword-input-wrap input { font-size:12px; }
-    .keyword-search-form .dash-button { flex:1; justify-content:space-between; min-height:42px; }
+    .keyword-search-form .dash-button { flex:1; justify-content:space-between; min-height:42px; white-space:nowrap; }
+    .keyword-search-mode { flex:1 0 100%; min-width:0; }
+    .keyword-search-mode select { width:100%; height:42px; max-width:none; }
     .keyword-clear { align-self:center; padding:8px; }
     .keyword-search-help { font-size:12px; }
     .keyword-results-heading { align-items:flex-start; flex-direction:column; gap:9px; }

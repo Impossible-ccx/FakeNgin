@@ -8,9 +8,14 @@
 """
 
 import hashlib
+import json
 import math
 import shutil
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
+from functools import lru_cache
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+import threading
 
 import jieba
 import pandas as pd
@@ -20,20 +25,23 @@ from .db import DATABASE_DIR
 
 SEARCH_INDEX_DIR = DATABASE_DIR / "searchindex"
 
-INDEX_VERSION = 1
+INDEX_VERSION = 2
 BM25_K1 = 1.5
 BM25_B = 0.75
 
 GLOBAL_META_FILE = SEARCH_INDEX_DIR / "meta.csv"
 GLOBAL_TERMS_FILE = SEARCH_INDEX_DIR / "terms.csv"
 
-GLOBAL_META_COLUMNS = ["doc_count", "avgdl", "updated_at", "version"]
+GLOBAL_META_COLUMNS = ["doc_count", "avgdl", "updated_at", "version", "index_fingerprint"]
 GLOBAL_TERMS_COLUMNS = ["term", "df", "idf"]
 FILE_META_COLUMNS = [
     "fingerprint",
     "doc_count",
     "total_length",
     "mtime_ns",
+    "ctime_ns",
+    "device",
+    "inode",
     "size",
     "source_file",
     "version",
@@ -45,7 +53,66 @@ TERM_COLUMNS = ["term", "df"]
 
 # ------------------------------------------------------------ csv 读写
 
-from .db import _read_csv, _write_csv
+from .db import _read_csv as _read_index_csv
+
+_cache_lock = threading.RLock()
+_csv_cache = OrderedDict()
+_snapshots = OrderedDict()
+_rankings = OrderedDict()
+
+
+def clear_cache():
+    """清理派生索引的进程内缓存，不删除消息或磁盘索引。"""
+    with _cache_lock:
+        _csv_cache.clear()
+        _snapshots.clear()
+        _rankings.clear()
+        _query_tokens.cache_clear()
+
+
+def _stat_key(path):
+    stat = path.stat()
+    return (stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, stat.st_dev, stat.st_ino)
+
+
+def _read_csv(path, columns):
+    """索引 CSV 同样按文件版本缓存，反复查询无需反复反序列化倒排表。"""
+    path = Path(path).resolve()
+    if not path.exists():
+        return pd.DataFrame(columns=columns)
+    with _cache_lock:
+        for _ in range(3):
+            key = (str(path), _stat_key(path), tuple(columns))
+            if key in _csv_cache:
+                _csv_cache.move_to_end(key)
+                return _csv_cache[key].copy(deep=True)
+            frame = _read_index_csv(path, columns)
+            if _stat_key(path) != key[1]:
+                continue
+            for old_key in list(_csv_cache):
+                if old_key[0] == str(path):
+                    del _csv_cache[old_key]
+            _csv_cache[key] = frame
+            while len(_csv_cache) > 128:
+                _csv_cache.popitem(last=False)
+            return frame.copy(deep=True)
+        raise OSError("Search index changed while reading")
+
+
+def _write_csv(frame, path, columns):
+    """独立临时文件原子替换，避免两个索引请求共用同一个 .tmp。"""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with NamedTemporaryFile(mode="w", encoding="utf-8", newline="", dir=path.parent,
+                                prefix="." + path.name + ".", suffix=".tmp", delete=False) as output:
+            temporary = Path(output.name)
+            frame.to_csv(output, index=False, columns=columns)
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _as_int(value, default=0):
@@ -60,16 +127,34 @@ def _as_int(value, default=0):
 def _tokenize(text):
     """jieba 搜索引擎模式分词，过滤空白与纯标点，ASCII 统一小写。"""
     tokens = []
-    for token in jieba.cut_for_search(str(text)):
-        token = token.strip().lower()
+    for token in jieba.cut_for_search(str(text).casefold()):
+        token = token.strip().casefold()
         if token and any(ch.isalnum() for ch in token):
             tokens.append(token)
     return tokens
 
 
+@lru_cache(maxsize=128)
+def _query_tokens(query):
+    return tuple(_tokenize(query))
+
+
 def _content_fingerprint(contents):
     raw = "\x1f".join(str(content) for content in contents)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
+def _search_texts(table):
+    return (str(content) + " " + str(source) for content, source in zip(table["content"], table["source"]))
+
+
+def _stat_values(stat):
+    return dict(mtime_ns=stat.st_mtime_ns, ctime_ns=stat.st_ctime_ns,
+                size=stat.st_size, device=stat.st_dev, inode=stat.st_ino)
+
+
+def _same_stat(meta, stat):
+    return all(str(meta.get(key)) == str(value) for key, value in _stat_values(stat).items())
 
 
 # ----------------------------------------------------------- 每表缓存
@@ -91,7 +176,7 @@ def _build_file_index(name, table, fingerprint, stat):
     term_df = defaultdict(int)
     lengths = []
 
-    for doc_id, content in enumerate(table["content"]):
+    for doc_id, content in enumerate(_search_texts(table)):
         tokens = _tokenize(content)
         lengths.append(len(tokens))
         tf = defaultdict(int)
@@ -127,8 +212,7 @@ def _build_file_index(name, table, fingerprint, stat):
         "fingerprint": fingerprint,
         "doc_count": len(table),
         "total_length": int(sum(lengths)),
-        "mtime_ns": stat.st_mtime_ns,
-        "size": stat.st_size,
+        **_stat_values(stat),
         "source_file": name,
         "version": INDEX_VERSION,
     }], columns=FILE_META_COLUMNS)
@@ -138,8 +222,7 @@ def _build_file_index(name, table, fingerprint, stat):
 def _update_file_meta_stat(name, meta, stat):
     """内容未变、仅文件属性变化时，只刷新 mtime/size。"""
     updated = dict(meta)
-    updated["mtime_ns"] = stat.st_mtime_ns
-    updated["size"] = stat.st_size
+    updated.update(_stat_values(stat))
     _write_csv(
         pd.DataFrame([updated], columns=FILE_META_COLUMNS),_file_dir(name) / "meta.csv",
         FILE_META_COLUMNS,
@@ -152,8 +235,12 @@ def _prune_index(valid_names):
         return False
     valid = set(valid_names)
     removed = False
+    root = SEARCH_INDEX_DIR.resolve()
     for entry in SEARCH_INDEX_DIR.iterdir():
-        if entry.is_dir() and entry.name not in valid:
+        if (entry.is_dir() and entry.name not in valid
+                and entry.resolve().is_relative_to(root)
+                and (entry / "meta.csv").is_file()
+                and (entry / "postings.csv").is_file()):
             shutil.rmtree(entry, ignore_errors=True)
             removed = True
     return removed
@@ -181,7 +268,17 @@ def _load_global_terms():
     return _read_csv(GLOBAL_TERMS_FILE, GLOBAL_TERMS_COLUMNS)
 
 
-def _refresh_global_terms(names):
+def _index_fingerprint(names):
+    """全局统计绑定实际的每表索引，部分写入失败后下次查询能重建。"""
+    versions = []
+    for name in names:
+        meta = _read_file_meta(name) or {}
+        versions.append((name, meta.get("fingerprint"), meta.get("doc_count"),
+                         meta.get("total_length"), meta.get("version")))
+    return hashlib.sha1(json.dumps(versions, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _refresh_global_terms(names, index_fingerprint):
     """汇总各表 df，计算并缓存全局 df/idf。"""
     frames = []
     doc_count = 0
@@ -214,17 +311,15 @@ def _refresh_global_terms(names):
         "avgdl": f"{avgdl:.6f}",
         "updated_at": newsdata.now_string(),
         "version": INDEX_VERSION,
+        "index_fingerprint": index_fingerprint,
     }], columns=GLOBAL_META_COLUMNS)
     _write_csv( meta_df,GLOBAL_META_FILE, GLOBAL_META_COLUMNS)
 
 
 # --------------------------------------------------------------- 搜索
 
-def search(query, limit=3):
-    tokens = _tokenize(query)
-    if not tokens or limit <= 0:
-        return []
-
+def _build_snapshot():
+    """只更新有变化文件的磁盘索引，再构造复用的内存倒排表。"""
     names = newsdata.list_tables()
     SEARCH_INDEX_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -237,14 +332,14 @@ def search(query, limit=3):
             continue
 
         meta = _read_file_meta(name)
-        version_ok = meta is not None and _as_int(meta.get("version")) == INDEX_VERSION
-        if (version_ok
-                and str(meta.get("mtime_ns")) == str(stat.st_mtime_ns)
-                and str(meta.get("size")) == str(stat.st_size)):
+        version_ok = (meta is not None and _as_int(meta.get("version")) == INDEX_VERSION
+                      and all((_file_dir(name) / filename).is_file()
+                              for filename in ("postings.csv", "doc_lengths.csv", "terms.csv")))
+        if version_ok and _same_stat(meta, stat):
             continue
 
         table = newsdata.read_table(name)
-        fingerprint = _content_fingerprint(table["content"])
+        fingerprint = _content_fingerprint(_search_texts(table))
         if version_ok and meta.get("fingerprint") == fingerprint:
             _update_file_meta_stat(name, meta, stat)
         else:
@@ -252,11 +347,14 @@ def search(query, limit=3):
             needs_global_refresh = True
 
     global_meta = _read_global_meta()
-    if needs_global_refresh or global_meta is None:
-        _refresh_global_terms(names)
+    index_fingerprint = _index_fingerprint(names)
+    if (needs_global_refresh or global_meta is None
+            or global_meta.get("index_fingerprint") != index_fingerprint
+            or not GLOBAL_TERMS_FILE.is_file()):
+        _refresh_global_terms(names, index_fingerprint)
         global_meta = _read_global_meta()
     if global_meta is None:
-        return []
+        return {"avgdl": 0, "idf": {}, "postings": {}}
 
     doc_count = _as_int(global_meta.get("doc_count"))
     try:
@@ -264,11 +362,11 @@ def search(query, limit=3):
     except (TypeError, ValueError):
         avgdl = 0.0
     if doc_count <= 0 or avgdl <= 0:
-        return []
+        return {"avgdl": 0, "idf": {}, "postings": {}}
 
     terms = _load_global_terms()
     if terms.empty:
-        return []
+        return {"avgdl": 0, "idf": {}, "postings": {}}
     idf_map = {}
     for _, row in terms.iterrows():
         try:
@@ -276,14 +374,9 @@ def search(query, limit=3):
         except (TypeError, ValueError):
             continue
 
-    query_terms = set(tokens)
-    scores = defaultdict(float)
-
+    by_term = defaultdict(list)
     for name in names:
         postings = _read_csv(_file_dir(name) / "postings.csv", POSTING_COLUMNS)
-        if postings.empty:
-            continue
-        postings = postings[postings["term"].isin(query_terms)]
         if postings.empty:
             continue
 
@@ -294,32 +387,63 @@ def search(query, limit=3):
         }
 
         for doc_id, term, tf in zip(postings["doc_id"], postings["term"], postings["tf"]):
-            idf = idf_map.get(term)
-            if idf is None:
-                continue
-            tf_value = float(tf)
-            doc_id = _as_int(doc_id)
-            dl = length_map.get(doc_id, 0)
-            denominator = tf_value + BM25_K1 * (1 - BM25_B + BM25_B * dl / avgdl)
-            if denominator == 0:
-                continue
-            scores[(name, doc_id)] += idf * tf_value * (BM25_K1 + 1) / denominator
+            by_term[term].append((name, _as_int(doc_id), float(tf), length_map.get(_as_int(doc_id), 0)))
+    return {"avgdl": avgdl, "idf": idf_map, "postings": dict(by_term)}
 
-    if not scores:
+
+def ranked_references(query):
+    """返回全部匹配的文件/行号，复用原 BM25 索引并缓存查询排序。"""
+    query = str(query).strip().casefold()
+    tokens = _query_tokens(query)
+    if not tokens:
         return []
+    with _cache_lock:
+        for _ in range(3):
+            version = newsdata.dataset_fingerprint()
+            key = (str(SEARCH_INDEX_DIR.resolve()), INDEX_VERSION, version)
+            if key not in _snapshots:
+                snapshot = _build_snapshot()
+                if newsdata.dataset_fingerprint() != version:
+                    continue
+                _snapshots[key] = snapshot
+                while len(_snapshots) > 4:
+                    _snapshots.popitem(last=False)
+            _snapshots.move_to_end(key)
+            query_key = (key, tokens)
+            if query_key not in _rankings:
+                snapshot = _snapshots[key]
+                scores = defaultdict(float)
+                avgdl = snapshot["avgdl"]
+                for token in set(tokens):
+                    idf = snapshot["idf"].get(token, 0)
+                    for name, doc_id, tf, dl in snapshot["postings"].get(token, ()):
+                        denominator = tf + BM25_K1 * (1 - BM25_B + BM25_B * dl / avgdl)
+                        if denominator:
+                            scores[(name, doc_id)] += idf * tf * (BM25_K1 + 1) / denominator
+                ranked = tuple(reference for reference, score in sorted(
+                    scores.items(), key=lambda item: (-item[1], item[0][0], item[0][1]),
+                ) if score > 0)
+                _rankings[query_key] = ranked
+                while len(_rankings) > 128:
+                    _rankings.popitem(last=False)
+            _rankings.move_to_end(query_key)
+            return list(_rankings[query_key])
+        raise RuntimeError("Dataset changed while rebuilding search index")
 
-    ranked = sorted(
-        scores.items(),
-        key=lambda item: (-item[1], item[0][0], item[0][1]),
-    )[:limit]
+
+def search(query, limit=3):
+    """兼容 main 的相关性检索入口，默认仍返回最高相关的三条消息。"""
+    if limit <= 0:
+        return []
+    ranked = ranked_references(query)[:limit]
 
     hit_files = {}
-    for (name, _doc_id), _score in ranked:
+    for name, _doc_id in ranked:
         if name not in hit_files:
             hit_files[name] = newsdata.read_table(name)
 
     results = []
-    for (name, doc_id), _score in ranked:
+    for name, doc_id in ranked:
         table = hit_files[name]
         if doc_id < 0 or doc_id >= len(table):
             continue

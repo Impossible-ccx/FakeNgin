@@ -15,7 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import checkmodel
 from flask import template_rendered
 from markupsafe import escape
-from webapp import create_app, db, newsdata
+from webapp import bm25, create_app, db, newsdata
+from webapp.routes import search as search_routes
 
 
 class SearchRouteTests(unittest.TestCase):
@@ -28,6 +29,12 @@ class SearchRouteTests(unittest.TestCase):
             USERS_FILE=self.database_dir / "users.csv", SESSIONS_FILE=self.database_dir / "sessions.csv",
         ))
         self.stack.enter_context(patch.object(newsdata, "NEWSDATA_DIR", self.database_dir / "newsdata"))
+        index_dir = self.database_dir / "searchindex"
+        self.stack.enter_context(patch.multiple(bm25, SEARCH_INDEX_DIR=index_dir,
+                                               GLOBAL_META_FILE=index_dir / "meta.csv",
+                                               GLOBAL_TERMS_FILE=index_dir / "terms.csv"))
+        bm25.clear_cache()
+        search_routes.clear_cache()
         self.get_models = self.stack.enter_context(patch.object(checkmodel, "get_models", return_value=[]))
         self.get_model = self.stack.enter_context(patch.object(checkmodel, "get_model"))
         self.app = create_app()
@@ -44,8 +51,8 @@ class SearchRouteTests(unittest.TestCase):
         newsdata.append_message({"content": content, "nature": newsdata.DEFAULT_NATURE, **values})
         return newsdata.load_all().iloc[-1].to_dict()
 
-    def view(self, query=None, page=None, status=200):
-        parameters = {}
+    def view(self, query=None, page=None, status=200, mode="literal"):
+        parameters = {"mode": mode}
         if query is not None:
             parameters["q"] = query
         if page is not None:
@@ -182,6 +189,60 @@ class SearchRouteTests(unittest.TestCase):
         html = self.client.get("/data").get_data(as_text=True)
         self.assertIn('href="/search"', html)
         self.assertNotIn('name="q"', html)
+
+    def test_default_search_uses_related_ranking_and_literal_mode_keeps_phrase_matching(self):
+        self.seed("苹果 香蕉 苹果")
+        self.seed("香蕉 苹果")
+        self.seed("无关消息", source="苹果 香蕉")
+        expected = bm25.ranked_references("苹果 香蕉")
+        response = self.client.get("/search", query_string={"q": "苹果 香蕉"})
+        self.assertEqual(response.status_code, 200)
+        context = self.contexts[-1][1]
+        self.assertEqual(context["mode"], "related")
+        self.assertEqual([(row["_file"], row["_row"]) for row in context["rows"]], expected)
+        self.assertEqual(context["total_matches"], 3)
+        self.assertIn('value="related" selected', response.get_data(as_text=True))
+        _, literal = self.view("苹果 香蕉")
+        self.assertEqual(literal["total_matches"], 2)
+        self.get_model.assert_not_called()
+
+    def test_search_cache_is_invalidated_by_content_source_labels_and_file_set_changes(self):
+        row = self.seed("旧词 独有", source="机构甲")
+        _, context = self.view("旧词", mode="related")
+        self.assertEqual(context["total_matches"], 1)
+        with patch.object(bm25, "_build_file_index", side_effect=AssertionError("warm cache rebuilt")):
+            _, warm = self.view("旧词", mode="related")
+        self.assertEqual(warm["total_matches"], 1)
+        newsdata.update_message(row["_file"], row["_row"], row["_signature"], {"nature": "真实"})
+        with patch.object(bm25, "_build_file_index", side_effect=AssertionError("label edit rebuilt tokens")):
+            _, changed = self.view("旧词", mode="related")
+        self.assertEqual(changed["rows"][0]["nature"], "真实")
+        current = newsdata.load_all().iloc[0]
+        newsdata.update_message(current["_file"], int(current["_row"]), current["_signature"],
+                                {"content": "新词 独有", "source": "机构乙"})
+        _, old = self.view("旧词", mode="related")
+        self.assertEqual(old["total_matches"], 0)
+        _, new = self.view("机构乙", mode="related")
+        self.assertEqual(new["total_matches"], 1)
+        self.seed("新词 导入消息")
+        _, after_import = self.view("新词", mode="related")
+        self.assertEqual(after_import["total_matches"], 2)
+        current = newsdata.load_all().iloc[0]
+        newsdata.delete_message(current["_file"], int(current["_row"]), current["_signature"])
+        _, after_delete = self.view("新词", mode="related")
+        self.assertEqual(after_delete["total_matches"], 1)
+
+    def test_related_pagination_preserves_mode_and_invalid_mode_is_rejected(self):
+        for index in range(21):
+            self.seed("分页 关键词 {}".format(index))
+        response, context = self.view("关键词", mode="related")
+        self.assertEqual((context["total_matches"], len(context["rows"]), context["total_pages"]), (21, 20, 2))
+        self.assertIn("mode=related", response.get_data(as_text=True))
+        _, last = self.view("关键词", page=2, mode="related")
+        self.assertEqual(len(last["rows"]), 1)
+        with patch.object(newsdata, "load_all") as load:
+            self.view("关键词", mode="invalid", status=400)
+        load.assert_not_called()
 
 
 if __name__ == '__main__':
