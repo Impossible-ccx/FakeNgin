@@ -9,11 +9,11 @@
         <div class="overview-actions"><a class="dash-button dash-button-light" href="{{ url_for('main.detect') }}">开始一次检测 <span aria-hidden="true">↗</span></a><a class="overview-secondary" href="{{ url_for('main.history') }}">查看历史记录 <span aria-hidden="true">→</span></a></div>
         <div class="overview-tags"><span>模型服务</span><span>逐模型进度</span><span>多格式导出</span></div>
     </div>
-    <div class="overview-visual" aria-label="Qwen、DeepSeek、GLM 分别分析消息，再聚合并归档结果的流程示意">
+    <div class="overview-visual" aria-label="多个分析模型分别处理消息，再聚合并归档结果的流程示意">
         <span class="visual-label">ANALYSIS FLOW / 流程示意</span>
         <div class="visual-input"><span class="visual-input-icon" aria-hidden="true">≡</span><div><strong>输入消息</strong><span>保留文本的完整上下文</span></div><span aria-hidden="true">↘</span></div>
         <div class="visual-connectors" aria-hidden="true"></div>
-        <div class="visual-models"><div><b class="model-mark model-mark-q">Q</b><span>Qwen</span></div><div><b class="model-mark model-mark-d">D</b><span>DeepSeek</span></div><div><b class="model-mark model-mark-g">G</b><span>GLM</span></div></div>
+        <div class="visual-models"><div><b class="model-mark">1</b><span>分析模型 1</span></div><div><b class="model-mark">2</b><span>分析模型 2</span></div><div><b class="model-mark">3</b><span>分析模型 3</span></div></div>
         <div class="visual-connectors visual-connectors-bottom" aria-hidden="true"></div>
         <div class="visual-result"><div><span class="visual-result-label">聚合结果</span><strong>多数投票 / 平均分兜底</strong></div><span class="visual-result-arrow" aria-hidden="true">↗</span></div>
         <p class="visual-footnote">模型分数 · 判断理由 · 检测报告</p>
@@ -25,6 +25,7 @@
         <a class="tool-card tool-card-primary" href="{{ url_for('main.detect') }}"><div class="tool-card-top"><span class="tool-icon" aria-hidden="true">⌁</span><span>01 / ANALYZE</span></div><h3>检测工作台</h3><p>选择单模型或多模型投票，实时查看进度、风险评分和判断理由。</p><span class="tool-link">开始检测 <b aria-hidden="true">↗</b></span></a>
         <a class="tool-card" href="{{ url_for('main.history') }}"><div class="tool-card-top"><span class="tool-icon" aria-hidden="true">◷</span><span>02 / REVIEW</span></div><h3>历史与报告</h3><p>搜索过往检测，回看原始消息与模型结果，一键复制或导出。</p><span class="tool-link">查看记录 <b aria-hidden="true">↗</b></span></a>
         <a class="tool-card" href="{{ url_for('main.data') }}"><div class="tool-card-top"><span class="tool-icon" aria-hidden="true">▤</span><span>03 / DATASET</span></div><h3>数据与批量检测</h3><p>导入和检索消息样本，选择模型批量检测，完成后自动保存报告。</p><span class="tool-link">准备一批消息 <b aria-hidden="true">↗</b></span></a>
+        <a class="tool-card" href="{{ url_for('main.verify') }}"><div class="tool-card-top"><span class="tool-icon" aria-hidden="true">✓</span><span>04 / VERIFY</span></div><h3>人工校验</h3><p>登录后逐条标注消息性质，跳过待定内容，并维护数据集中的消息。</p><span class="tool-link">进入校验工作台 <b aria-hidden="true">↗</b></span></a>
     </div>
 </section>
 {% endblock %}

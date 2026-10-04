@@ -36,6 +36,7 @@ COLUMNS = [
 ]
 RISK_COLUMNS = {"risk_score", "risk_model", "risk_reason", "risk_prompt_version"}
 NATURES = ["虚假", "真实", "中立", "未校验"]
+VERIFY_NATURES = ["虚假", "真实", "中立"]
 DEFAULT_NATURE = "未校验"
 
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"

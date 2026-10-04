@@ -6,6 +6,7 @@ from flask import Flask
 from dotenv import load_dotenv
 
 from . import auth, batches, db, newsdata
+from .models import model_label
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WEB_DIR = PROJECT_ROOT / "web"
@@ -21,6 +22,7 @@ def create_app():
         template_folder=str(WEB_DIR / "templates"),
     )
     app.secret_key = SECRET_KEY
+    app.add_template_filter(model_label, "model_label")
 
     db.ensure_database()
     newsdata.ensure_newsdata()

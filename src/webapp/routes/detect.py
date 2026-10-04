@@ -5,10 +5,11 @@ import json
 from flask import Response, current_app, jsonify, render_template, request, stream_with_context, url_for
 
 from checkmodel.ensemble import (
-    DEEPSEEK_SOURCES, MAX_MESSAGE_LENGTH, RISK_MODELS, get_risk_models, iter_risk_check,
+    MAX_MESSAGE_LENGTH, iter_risk_check,
     run_risk_check, validate_risk_request,
 )
-from .. import api_credentials, reports
+from .. import reports
+from ..models import list_web_models, model_label, validate_web_source
 from . import main
 
 
@@ -21,24 +22,19 @@ def _save_result(message, model_ids, result):
 
 
 def _context(form=None):
-    cloud_model, api_state = api_credentials.resolve_cloud_model()
-    requested_source = form.get("deepseek_source") if form is not None else None
-    source_error = requested_source is not None and requested_source not in DEEPSEEK_SOURCES
-    models = get_risk_models(None if source_error else requested_source, cloud_model=cloud_model)
-    deepseek = next(model for model in models if model["id"] == "deepseek_r1")
+    models = list_web_models()
+    default_mode = "vote" if len(models) >= 2 else "single"
     context = {
         "models": models,
-        "mode": "vote",
-        "selected_ids": [model["id"] for model in RISK_MODELS],
+        "mode": default_mode,
+        "selected_ids": [model["id"] for model in models],
         "message": "",
         "result": None,
         "error": None,
         "record": None,
         "history_error": None,
         "max_message_length": MAX_MESSAGE_LENGTH,
-        "deepseek_source": deepseek["source"],
         "response_status": 200,
-        "deepseek_api_state": api_state,
     }
     if form is None:
         return context
@@ -47,13 +43,14 @@ def _context(form=None):
     mode = form.get("mode", "vote")
     selected_ids = form.getlist("models")
     context.update(message=message, mode=mode, selected_ids=selected_ids)
-    if source_error:
-        context.update(error="请选择有效的 DeepSeek 来源：云端 API 或本地 Ollama", response_status=400)
+    try:
+        source = validate_web_source(form.get("deepseek_source"))
+    except ValueError as exc:
+        context.update(error=str(exc), response_status=400)
         return context
     try:
         context["result"] = run_risk_check(
-            message, selected_ids, mode=mode, deepseek_source=requested_source,
-            cloud_model=cloud_model,
+            message, selected_ids, mode=mode, deepseek_source=source,
         )
     except ValueError as exc:
         context["error"] = str(exc)
@@ -81,9 +78,8 @@ def detect_check():
 def detect_stream():
     """按真实推理完成情况发送 NDJSON；输入错误在开始流式响应前返回。"""
     mode = request.form.get("mode", "vote")
-    deepseek_source = request.form.get("deepseek_source")
-    cloud_model, _ = api_credentials.resolve_cloud_model()
     try:
+        deepseek_source = validate_web_source(request.form.get("deepseek_source"))
         message, model_ids = validate_risk_request(
             request.form.get("message", ""), request.form.getlist("models"), mode, deepseek_source,
         )
@@ -92,7 +88,9 @@ def detect_stream():
 
     def events():
         try:
-            for event in iter_risk_check(message, model_ids, mode, deepseek_source, cloud_model=cloud_model):
+            for event in iter_risk_check(message, model_ids, mode, deepseek_source):
+                if "member" in event:
+                    event = {**event, "member": {**event["member"], "ui_display_name": model_label(event["member"])}}
                 if event["type"] == "complete":
                     result = event["result"]
                     record, history_error = _save_result(message, model_ids, result)

@@ -7,6 +7,7 @@ import json
 from flask import Response, abort, current_app, render_template, request
 
 from .. import reports
+from ..models import model_label
 from . import main
 
 
@@ -133,7 +134,7 @@ def _text_export(record):
     for index, member in enumerate(result["members"], 1):
         lines.extend([
             "",
-            "{}. {} ({})".format(index, member["display_name"], member["id"]),
+            "{}. {}".format(index, model_label(member, index)),
             "调用来源：" + (member.get("source_label") or "未记录"),
             "状态：{} / {}".format(member["status"], member["label"]),
             "风险分：{}".format("—" if member["score"] is None else str(member["score"]) + " / 100"),

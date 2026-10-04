@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% set nature_class = {'虚假':'fake','真实':'real','中立':'neutral','未校验':'unknown'} %}
+{% macro message_fields(prefix, row=None) %}
+{% set values = row or {} %}
+<div class="verify-fields">
+    <label class="verify-field verify-field-wide" for="{{ prefix }}-content"><span>消息内容 <small>必填</small></span><textarea id="{{ prefix }}-content" name="content" rows="4" required maxlength="{{ max_message_length | default(6000) }}" placeholder="输入需要整理和校验的消息">{{ values.get('content', '') }}</textarea></label>
+    <label class="verify-field" for="{{ prefix }}-source"><span>消息来源</span><input id="{{ prefix }}-source" type="text" name="source" maxlength="200" value="{{ values.get('source', '') }}" placeholder="填写消息出处"></label>
+    <label class="verify-field" for="{{ prefix }}-score"><span>原数据分类分数 <small>选填 · 0–100</small></span><input id="{{ prefix }}-score" type="number" name="fake_probability" min="0" max="100" step="0.01" value="{{ values.get('fake_probability', '') }}" placeholder="保留原数据字段，可留空"></label>
+    <fieldset class="verify-field verify-field-wide verify-nature-field"><legend>消息性质</legend><div class="verify-choices">{% for nature in nature_options %}<label class="verify-choice"><input type="radio" name="nature" value="{{ nature }}" {% if values.get('nature', '未校验') == nature %}checked{% endif %}><span>{{ nature }}</span></label>{% endfor %}</div></fieldset>
+    <label class="verify-field" for="{{ prefix }}-published"><span>消息发出时间</span><input id="{{ prefix }}-published" type="text" name="publish_time" value="{{ values.get('publish_time', now if not row else '') }}" placeholder="YYYY-MM-DD HH:MM:SS"></label>
+    <label class="verify-field" for="{{ prefix }}-processed"><span>校验处理时间 <small>选填</small></span><input id="{{ prefix }}-processed" type="text" name="process_time" value="{{ values.get('process_time', '') }}" placeholder="YYYY-MM-DD HH:MM:SS"></label>
+</div>
+{% endmacro %}
+{% macro row_reference(row) %}
+<input type="hidden" name="_file" value="{{ row['_file'] }}"><input type="hidden" name="_row" value="{{ row['_row'] }}"><input type="hidden" name="_signature" value="{{ row['_signature'] }}">
+{% endmacro %}
+{% block title %}FakeNgin · 人工校验{% endblock %}
+{% block content %}
+<div class="verify-workspace">
+    <header class="dash-hero dash-hero-compact"><div><p class="dash-kicker">MANUAL REVIEW / 人工校验</p><h1>逐条确认，整理消息标签。</h1><p>查看待校验消息，标注性质，维护数据内容。校验结果保存在当前数据集中。</p></div><div class="dash-hero-aside"><span>待校验消息</span><strong>{{ unverified_count | default(total) }}</strong><span>共 {{ total }} 条消息</span></div></header>
+    <div class="workspace-section-title"><span class="section-number">01</span><h2>校验队列</h2><span class="section-line"></span><span>查看 · 判断 · 标注</span></div>
+    <section class="verify-queue" data-check-state="{{ check_state }}" aria-labelledby="verify-queue-heading">
+        <div class="verify-section-heading"><div><p class="dash-eyebrow">REVIEW QUEUE</p><h2 id="verify-queue-heading">{% if check_state == 'ready' %}当前待校验消息{% elif not total %}从第一条消息开始{% elif check_state == 'all_skipped' %}已暂时跳过所有待校验消息{% else %}当前消息已全部校验{% endif %}</h2></div>{% if skipped_count | default(0) %}<span class="verify-queue-count">已跳过 {{ skipped_count }} 条</span>{% endif %}</div>
+        {% if check_state == 'ready' %}
+        <p class="verify-queue-content">{{ check_row.content }}</p>
+        <div class="verify-queue-meta"><span>来源 <strong>{{ check_row.source or '未填写' }}</strong></span><span>发出时间 <strong>{{ check_row.publish_time or '未填写' }}</strong></span></div>
+        <div class="verify-queue-actions">
+            <form id="verify-check-form" method="post" action="{{ url_for('main.verify_check') }}" data-verify-form>{{ row_reference(check_row) }}<fieldset class="verify-nature-field"><legend class="visually-hidden">选择消息性质</legend><div class="verify-choices">{% for nature in verify_natures %}<label class="verify-choice"><input type="radio" name="nature" value="{{ nature }}" required><span>{{ nature }}</span></label>{% endfor %}</div></fieldset><button type="submit" class="dash-button">确认并查看下一条 <span aria-hidden="true">→</span></button></form>
+            <form id="verify-skip-form" method="post" action="{{ url_for('main.verify_skip') }}" data-verify-form>{{ row_reference(check_row) }}<button type="submit" class="verify-secondary-button">暂时跳过</button></form>
+        </div>
+        <p class="verify-queue-note">确认后自动进入下一条；跳过的消息可稍后重新加入队列。</p>
+        {% elif check_state == 'all_skipped' %}
+        <p class="verify-empty-copy">跳过仅影响当前会话的队列，消息内容和标签保持不变。</p><form id="verify-reset-form" method="post" action="{{ url_for('main.verify_reset_skip') }}" data-verify-form><button type="submit" class="dash-button dash-button-small">重新查看已跳过消息 <span aria-hidden="true">↻</span></button></form>
+        {% else %}
+        <p class="verify-empty-copy">{% if not total %}在下方添加消息，或先到数据浏览导入一批文本。{% else %}可以在下方查看与修改消息，或添加新的待校验内容。{% endif %}</p><a class="verify-text-link" href="#verify-add">添加一条消息 <span aria-hidden="true">↓</span></a>
+        {% endif %}
+    </section>
+
+    <div class="workspace-section-title"><span class="section-number">02</span><h2>全部消息</h2><span class="section-line"></span><span>共 {{ total }} 条</span></div>
+    <section class="verify-records" aria-label="全部消息">
+        {% for row in rows %}{% set prefix = 'verify-edit-' ~ loop.index %}
+        <article class="verify-record">
+            <div class="verify-record-heading"><span class="verify-record-number">{{ (page - 1) * 20 + loop.index }}</span><span class="nature nature-{{ nature_class.get(row.nature, 'unknown') }}">{{ row.nature or '未校验' }}</span><span class="verify-record-source">{{ row.source or '未填写来源' }}</span></div>
+            <details class="verify-record-text"><summary>{{ row.content | truncate(180) }}</summary><p>{{ row.content }}</p></details>
+            <div class="verify-record-meta"><span>发出 {{ row.publish_time or '—' }}</span><span>处理 {{ row.process_time or '—' }}</span>{% if row.fake_probability %}<span>原数据分类分数 {{ row.fake_probability }}</span>{% endif %}</div>
+            <div class="verify-record-tools">
+                <details class="verify-record-editor"><summary>修改消息 <span aria-hidden="true">↗</span></summary><form id="{{ prefix }}" method="post" action="{{ url_for('main.verify_update') }}" data-verify-form>{{ row_reference(row) }}<input type="hidden" name="page" value="{{ page }}">{{ message_fields(prefix, row) }}<div class="verify-form-actions"><button type="submit" class="dash-button dash-button-small">保存修改</button><button type="button" class="verify-secondary-button" data-verify-cancel hidden>取消修改</button></div></form></details>
+                <details class="verify-record-delete"><summary>删除消息</summary><form method="post" action="{{ url_for('main.verify_delete') }}" data-verify-form>{{ row_reference(row) }}<input type="hidden" name="page" value="{{ page }}"><p>确认从数据集中删除这条消息？</p><div class="verify-form-actions"><button type="submit" class="verify-danger-button">确认删除</button><button type="button" class="verify-secondary-button" data-verify-cancel hidden>取消</button></div></form></details>
+            </div>
+        </article>
+        {% else %}<div class="verify-record-empty"><span aria-hidden="true">▤</span><h3>数据集还没有消息</h3><p>添加消息后，内容和标签会显示在这里。</p></div>{% endfor %}
+    </section>
+    {% if total %}<nav class="pagination" aria-label="人工校验消息分页">{% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('main.verify', page=page-1) }}">上一页</a>{% else %}<span class="btn btn-sm btn-disabled">上一页</span>{% endif %}<span class="page-info">第 {{ page }} / {{ total_pages }} 页</span>{% if page < total_pages %}<a class="btn btn-sm" href="{{ url_for('main.verify', page=page+1) }}">下一页</a>{% else %}<span class="btn btn-sm btn-disabled">下一页</span>{% endif %}</nav>{% endif %}
+
+    <div class="workspace-section-title"><span class="section-number">03</span><h2>添加消息</h2><span class="section-line"></span><span>补充数据集</span></div>
+    <section id="verify-add" class="verify-add-panel" aria-labelledby="verify-add-heading"><div class="verify-section-heading"><div><p class="dash-eyebrow">ADD A MESSAGE</p><h2 id="verify-add-heading">把新的消息加入队列</h2></div><span>默认为未校验</span></div><form id="verify-add-form" method="post" action="{{ url_for('main.verify_add') }}" data-verify-form><input type="hidden" name="page" value="{{ page }}">{{ message_fields('verify-add') }}<div class="verify-form-actions"><button type="submit" class="dash-button">添加消息 <span aria-hidden="true">＋</span></button></div></form></section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/verify.js') }}" defer></script>{% endblock %}

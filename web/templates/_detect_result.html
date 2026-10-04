@@ -28,10 +28,9 @@
     <div class="risk-members">
         {% for member in result.members %}
         <article class="risk-member risk-level-{{ member.level or 'uncertain' }}">
-            <header class="risk-member-heading">{{ model_mark(member.id) }}<h4>{{ member.display_name }}</h4><span class="risk-member-status risk-status-{{ member.status }}">{{ status_labels.get(member.status,'未知状态') }}</span></header>
-            {% if member.get('source_label') %}<p class="risk-member-source"><span>运行来源</span>{{ member.source_label }}</p>{% endif %}
+            <header class="risk-member-heading">{{ model_mark(member.id, loop.index) }}<h4>{{ member | model_label(loop.index) }}</h4><span class="risk-member-status risk-status-{{ member.status }}">{{ status_labels.get(member.status,'未知状态') }}</span></header>
             <div class="risk-member-summary">{% if member.score is not none %}<div class="risk-member-score"><strong>{{ '%.1f' | format(member.score) }}</strong><span> / 100</span></div>{% else %}<span class="risk-missing-score">未获得有效分数</span>{% endif %}<span class="risk-level-label">{{ member.label }}</span></div>
-            {% if member.score is not none %}<progress class="risk-score-track" value="{{ member.score }}" max="100" aria-label="{{ member.display_name }} 风险评分 {{ member.score }}，满分 100"></progress><div class="risk-score-scale"><span>0</span><span>40</span><span>70</span><span>100</span></div>{% endif %}
+            {% if member.score is not none %}<progress class="risk-score-track" value="{{ member.score }}" max="100" aria-label="{{ member | model_label(loop.index) }} 风险评分 {{ member.score }}，满分 100"></progress><div class="risk-score-scale"><span>0</span><span>40</span><span>70</span><span>100</span></div>{% endif %}
             {% if member.reason %}{% if member.reason | length > 180 %}<details class="risk-reason-details"><summary>展开完整判断理由 <span aria-hidden="true">＋</span></summary><p class="risk-member-reason">{{ member.reason }}</p></details>{% else %}<p class="risk-member-reason">{{ member.reason }}</p>{% endif %}{% endif %}
             {% if member.error %}<p class="risk-member-error">{{ member.error }}</p>{% endif %}
             {% if member.status == 'ok' and not member.reason %}<p class="risk-member-reason">模型未提供判断理由。</p>{% endif %}
@@ -46,5 +45,5 @@
     {% elif history_error %}<div class="report-save-error"><strong>本次结果尚未保存</strong><p>{{ history_error }}</p></div>{% endif %}
 </section>
 {% else %}
-<section class="risk-result-empty" data-risk-result><div class="empty-orbit" aria-hidden="true"><span>⌁</span></div><div><p class="dash-eyebrow">READY WHEN YOU ARE</p><h2>准备好，开始探索这条消息。</h2><p>提交后，模型进度、评分与分析报告会在这里逐一呈现。</p></div><div class="empty-model-marks" aria-hidden="true">{{ model_mark('qwen') }}{{ model_mark('deepseek') }}{{ model_mark('glm') }}</div></section>
+<section class="risk-result-empty" data-risk-result><div class="empty-orbit" aria-hidden="true"><span>⌁</span></div><div><p class="dash-eyebrow">READY WHEN YOU ARE</p><h2>准备好，开始探索这条消息。</h2><p>提交后，模型进度、评分与分析报告会在这里逐一呈现。</p></div><div class="empty-model-marks" aria-hidden="true">{{ model_mark('', 1) }}{{ model_mark('', 2) }}{{ model_mark('', 3) }}</div></section>
 {% endif %}

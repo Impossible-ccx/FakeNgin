@@ -110,20 +110,19 @@ class DetectRouteTests(unittest.TestCase):
         self.assertTrue(self.contexts)
         return response, self.contexts[-1][1]
 
-    def test_get_with_no_models_keeps_all_choices_and_explains_unavailability(self):
+    def test_get_with_no_models_has_no_choices_and_explains_unavailability(self):
         self.available_models.return_value = []
         response = self.client.get("/detect")
         self.assertEqual(response.status_code, 200)
         context = self.contexts[-1][1]
-        self.assertEqual(context["mode"], "vote")
-        self.assertEqual(set(context["selected_ids"]), set(RISK_IDS))
+        self.assertEqual(context["mode"], "single")
+        self.assertEqual(context["selected_ids"], [])
         self.assertEqual(context["max_message_length"], 6000)
-        self.assertEqual({model["id"] for model in context["models"]}, set(RISK_IDS))
-        self.assertTrue(all(not model["available"] for model in context["models"]))
+        self.assertEqual(context["models"], [])
         html = response.get_data(as_text=True)
         for model in context["models"]:
             self.assertIn(model["display_name"], html)
-        self.assertRegex(html, "不可用|未就绪")
+        self.assertRegex(html, "不可用|未就绪|没有可用|暂无可用")
         self.assertIsNone(context["result"])
         self.get_model.assert_not_called()
 
@@ -205,7 +204,7 @@ class DetectRouteTests(unittest.TestCase):
         self.assertTrue(result["members"][2]["error"])
         html = response.get_data(as_text=True)
         self.assertIn(result["members"][2]["error"], html)
-        self.assertIn(result["members"][2]["display_name"], html)
+        self.assertIn("分析模型 3", html)
 
     def test_only_one_success_is_explicit_mean_fallback_with_original_count(self):
         for model_id in RISK_IDS[1:]:

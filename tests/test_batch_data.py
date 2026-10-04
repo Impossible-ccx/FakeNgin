@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 import sys
 import threading
-import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -13,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from markupsafe import escape
 from werkzeug.datastructures import MultiDict
-from webapp import api_credentials, batches, create_app, newsdata, reports
+from webapp import batches, create_app, newsdata, reports
 
 import test_detect_routes as helpers
 
@@ -115,7 +114,7 @@ class BatchDataTests(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("/data/import", html)
         self.assertIn("/data/batches", html)
-        self.assertNotIn("/verify", html)
+        self.assertIn('href="/verify"', html)
         self.get_model.assert_not_called()
 
     def test_import_text_and_csv_preserve_chinese_and_never_start_detection(self):
@@ -233,15 +232,15 @@ class BatchDataTests(unittest.TestCase):
         self.start_worker.assert_not_called()
         self.get_model.assert_not_called()
         self.assertEqual(batches.list_batches(), [])
-        created = self.create_job(refs, model_ids=helpers.RISK_IDS[:2], deepseek_source="cloud")
+        self.deepseek_sources[1]["available"] = False
+        created = self.create_job(refs, model_ids=helpers.RISK_IDS[:2], deepseek_source="local")
         job = self.run_job(created["job_id"])
         result = job["items"][0]["result"]
         self.assertEqual(result["selected_count"], 2)
         self.assertEqual(result["success_count"], 1)
         self.assertEqual(result["decision_method"], "mean_fallback")
-        self.assertEqual(result["members"][1]["status"], "error")
-        self.assertEqual(result["members"][1]["credential_mode"], "missing")
-        self.assertEqual(result["members"][1]["source"], "cloud")
+        self.assertEqual(result["members"][1]["status"], "unavailable")
+        self.assertEqual(result["members"][1]["source"], "local")
         self.deepseek_instances["local"].check.assert_not_called()
 
     def test_no_js_import_and_batch_forms_redirect_to_resumable_job(self):
@@ -263,31 +262,34 @@ class BatchDataTests(unittest.TestCase):
         self.start_worker.assert_called_once()
         self.get_model.assert_not_called()
 
-    def test_batch_passes_explicit_cloud_source_without_extra_deepseek_vote(self):
+    def test_forged_cloud_batch_is_rejected_without_calling_owner_model(self):
         refs = self.seed_rows(["云端批量样本"])
         self.deepseek_sources[0]["available"] = True
-        cloud = Mock(
-            check=Mock(return_value=(12, "云端说明")),
-            display_name="DeepSeek Flash（云端 API）", source="cloud", source_label="云端 API",
-            description="个人云端风险模型", model_name="deepseek-flash", detect=Mock(return_value=True),
-            credential_mode="personal",
-        )
-        token = "test-only-personal-batch-cloud-token"
-        self.stack.enter_context(patch.object(api_credentials, "_vault", {
-            token: {"model": cloud, "expires_at": time.time() + 3600},
-        }))
-        self.client.set_cookie(api_credentials.COOKIE_NAME, token)
-        created = self.create_job(refs, deepseek_source="cloud")
-        job = self.run_job(created["job_id"])
-        result = job["items"][0]["result"]
-        self.assertEqual(result["selected_count"], 3)
-        self.assertEqual([member["id"] for member in result["members"]], helpers.RISK_IDS)
-        self.assertEqual(result["members"][1]["source"], "cloud")
-        self.assertEqual(result["members"][1]["score"], 12)
-        self.assertEqual(result["members"][1]["credential_mode"], "personal")
-        self.assertNotIn("deepseek_r1", [call.args[0] for call in self.get_model.call_args_list])
-        cloud.check.assert_called_once()
+        cloud = Mock(check=Mock(return_value=(12, "站点私有模型")))
+        self.deepseek_instances["cloud"] = cloud
+        response = self.client.post("/data/batches", json={
+            "rows": refs, "model_ids": helpers.RISK_IDS, "mode": "vote", "deepseek_source": "cloud",
+        })
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(batches.list_batches(), [])
+        self.get_model.assert_not_called()
+        self.start_worker.assert_not_called()
+        cloud.check.assert_not_called()
         self.deepseek_instances["local"].check.assert_not_called()
+
+    def test_legacy_cloud_batch_is_interrupted_without_running_any_model(self):
+        refs = self.seed_rows(["旧版云端任务"])
+        created = self.create_job(refs)
+        legacy = batches.get_batch(created["job_id"])
+        legacy["deepseek_source"] = "cloud"
+        batches._save_job(legacy)
+        result = self.run_job(created["job_id"])
+        self.assertEqual(result["status"], "interrupted")
+        self.assertEqual(result["completed_count"], 0)
+        self.assertEqual(reports.list_reports()["total"], 0)
+        self.get_model.assert_not_called()
+        for model in self.model_instances.values():
+            model.check.assert_not_called()
 
     def test_each_row_is_saved_before_next_finishes_and_dataset_links_latest_report(self):
         refs = self.seed_rows(["第一条消息", "第二条消息"])

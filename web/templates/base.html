@@ -22,9 +22,9 @@
                 <a href="{{ url_for('main.detect') }}" {% if current_endpoint.startswith('main.detect') %}class="is-current" aria-current="page"{% endif %}>检测工作台</a>
                 <a href="{{ url_for('main.history') }}" {% if current_endpoint in ['main.history', 'main.report'] %}class="is-current" aria-current="page"{% endif %}>历史记录</a>
                 <a href="{{ url_for('main.data') }}" {% if current_endpoint == 'main.data' %}class="is-current" aria-current="page"{% endif %}>数据浏览</a>
+                <a href="{{ url_for('main.verify') }}" {% if current_endpoint.startswith('main.verify') %}class="is-current" aria-current="page"{% endif %}>人工校验</a>
             </nav>
             <div class="nav-account">
-                <a class="api-settings-link {% if current_endpoint == 'main.api_settings' %}is-current{% endif %}" href="{{ url_for('main.api_settings') }}" {% if current_endpoint == 'main.api_settings' %}aria-current="page"{% endif %}><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="4" stroke="currentColor" stroke-width="1.6"/><path d="m10 10 7 7m-4-4 2-2m0 4 2-2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>API 设置</a>
                 <div class="nav-session">
                 {% if current_user %}
                 <span class="user-name">{{ current_user.username }}</span><a class="account-link" href="{{ url_for('main.logout') }}">退出</a>

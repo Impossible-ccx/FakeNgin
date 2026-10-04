@@ -6,7 +6,6 @@
     if (!form || !box) return;
     var rows = Array.from(form.querySelectorAll('input[name="items"]'));
     var models = Array.from(form.querySelectorAll('input[name="models"]'));
-    var source = form.querySelector('select[name="deepseek_source"]');
     var submit = document.getElementById('batch-submit');
     var count = document.getElementById('batch-selected-count');
     var statusMessage = document.getElementById('batch-status-message');
@@ -70,30 +69,6 @@
         return input ? input.value : 'vote';
     }
     function available(input) { return input.getAttribute('data-available') === 'true'; }
-    function updateSource() {
-        if (!source) return;
-        var input = models.find(function (model) { return model.value === 'deepseek_r1'; });
-        var option = source.options[source.selectedIndex];
-        if (!input || !option) return;
-        var card = input.closest('.risk-model');
-        var credentials = card.querySelector('[data-cloud-credentials]');
-        if (credentials) credentials.hidden = source.value !== 'cloud';
-        var ready = option.getAttribute('data-available') === 'true';
-        input.setAttribute('data-available', String(ready));
-        card.classList.toggle('risk-model-unavailable', !ready);
-        var title = card.querySelector('.risk-model-title strong');
-        var description = card.querySelector('.risk-model-description');
-        var badge = card.querySelector('.risk-availability');
-        if (title) title.textContent = option.getAttribute('data-display-name') || 'DeepSeek';
-        if (description) description.textContent = option.getAttribute('data-description') || '';
-        if (badge) {
-            badge.textContent = ready ? (source.value === 'cloud' ? '已配置' : '已连接') : '未就绪';
-            badge.classList.toggle('risk-availability-ready', ready);
-        }
-        var help = document.getElementById('batch-deepseek-help');
-        if (help) help.textContent = ready ? '使用' + (option.getAttribute('data-source-label') || '所选来源') + '完成 DeepSeek 分析，每条消息只计一票。' :
-            source.value === 'cloud' ? '云端 API 尚未就绪，请在“API 设置”中配置自己的 DeepSeek Key。' : '本地 Ollama 尚未就绪，请启动服务并确认已有 DeepSeek 模型。';
-    }
     function updateSelection(changed) {
         if (mode() === 'single') {
             var chosen = chosenModels();
@@ -126,7 +101,6 @@
     rows.forEach(function (input) { input.addEventListener('change', function () { setRow(input, input.checked); updateSelection(); }); });
     models.forEach(function (input) { input.addEventListener('change', function () { updateSelection(input); }); });
     Array.from(form.querySelectorAll('input[name="mode"]')).forEach(function (input) { input.addEventListener('change', function () { updateSelection(); }); });
-    if (source) source.addEventListener('change', function () { updateSource(); updateSelection(); });
     if (selectPage) selectPage.addEventListener('click', function () { rows.forEach(function (input) { setRow(input, true); }); updateSelection(); });
     if (clearSelection) clearSelection.addEventListener('click', function () { selectedRows.clear(); rows.forEach(function (input) { input.checked = false; }); rememberSelection(); updateSelection(); });
 
@@ -185,12 +159,11 @@
             live.appendChild(node('h3', '', '正在检测第 ' + (current.index + 1) + ' / ' + job.total + ' 条消息'));
             live.appendChild(node('p', 'batch-job-message', current.message));
             var members = node('div', 'risk-live-members batch-job-models');
-            (current.members || []).forEach(function (member) {
+            (current.members || []).forEach(function (member, index) {
                 var card = node('article', 'risk-live-member batch-job-model');
                 card.dataset.status = member.status;
-                card.appendChild(node('h4', '', member.display_name || member.id));
+                card.appendChild(node('h4', '', member.ui_display_name || '分析模型 ' + (index + 1)));
                 card.appendChild(node('span', 'risk-live-status', memberStates[member.status] || '等待分析'));
-                if (member.source_label) card.appendChild(node('span', 'risk-live-source', member.source_label));
                 card.appendChild(node('strong', 'risk-live-score', typeof member.score === 'number' ? member.score.toFixed(1) + ' 分' : '—'));
                 card.appendChild(node('p', 'risk-live-reason', member.reason || member.error || '正在读取消息并生成判断…'));
                 members.appendChild(card);
@@ -217,8 +190,8 @@
             if (item.history_error && item.result) {
                 var unsaved = node('details', 'batch-unsaved-result');
                 unsaved.appendChild(node('summary', '', '查看本次未保存的结果'));
-                item.result.members.forEach(function (member) {
-                    unsaved.appendChild(node('p', 'risk-help', (member.display_name || member.id) + '：' + (typeof member.score === 'number' ? member.score.toFixed(1) + ' 分；' : '') + (member.reason || member.error || '未能评分')));
+                item.result.members.forEach(function (member, index) {
+                    unsaved.appendChild(node('p', 'risk-help', (member.ui_display_name || '分析模型 ' + (index + 1)) + '：' + (typeof member.score === 'number' ? member.score.toFixed(1) + ' 分；' : '') + (member.reason || member.error || '未能评分')));
                 });
                 content.appendChild(unsaved);
             }
@@ -276,7 +249,7 @@
             var references = Array.from(selectedRows.values());
             var data = await jsonRequest(form.action, {
                 method: 'POST', headers: {Accept: 'application/json', 'Content-Type': 'application/json'},
-                body: JSON.stringify({rows: references, model_ids: chosenModels().map(function (input) { return input.value; }), mode: mode(), deepseek_source: source ? source.value : null})
+                body: JSON.stringify({rows: references, model_ids: chosenModels().map(function (input) { return input.value; }), mode: mode()})
             });
             statusUrl = localUrl(data.status_url);
             cancelUrl = localUrl(data.cancel_url);
@@ -335,7 +308,6 @@
             }
         });
     });
-    updateSource();
     if (selectPage) selectPage.hidden = false;
     if (clearSelection) clearSelection.hidden = false;
     jobActive = ['queued', 'running', 'cancelling'].indexOf(box.dataset.jobStatus) !== -1;

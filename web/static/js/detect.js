@@ -11,7 +11,6 @@
     var modeInputs = Array.from(form.querySelectorAll('input[name="mode"]'));
     var example = document.getElementById('risk-example');
     var clear = document.getElementById('risk-clear');
-    var deepseekSource = document.getElementById('deepseek-source');
     var availableCount = document.getElementById('risk-available-count');
     var modelAvailableCount = document.getElementById('risk-model-available-count');
     var busy = false;
@@ -31,34 +30,6 @@
         return modelInputs.filter(function (input) { return input.checked && !input.disabled; });
     }
     function isAvailable(input) { return input.getAttribute('data-available') === 'true'; }
-    function updateDeepSeekSource() {
-        if (!deepseekSource || busy) return;
-        var input = modelInputs.find(function (model) { return model.value === 'deepseek_r1'; });
-        var option = deepseekSource.options[deepseekSource.selectedIndex];
-        if (!input || !option) return;
-        var card = input.closest('.risk-model');
-        var available = option.getAttribute('data-available') === 'true';
-        var title = card.querySelector('.risk-model-title strong');
-        var description = card.querySelector('.risk-model-description');
-        var status = card.querySelector('.risk-availability');
-        var help = document.getElementById('deepseek-source-help');
-        var credentials = card.querySelector('[data-cloud-credentials]');
-        if (credentials) credentials.hidden = deepseekSource.value !== 'cloud';
-        input.setAttribute('data-available', String(available));
-        card.classList.toggle('risk-model-unavailable', !available);
-        if (title) title.textContent = option.getAttribute('data-display-name') || 'DeepSeek';
-        if (description) description.textContent = option.getAttribute('data-description') || '';
-        if (status) {
-            status.textContent = available ? (deepseekSource.value === 'cloud' ? '已配置' : '已连接') : '未就绪';
-            status.classList.toggle('risk-availability-ready', available);
-        }
-        if (help) {
-            var sourceLabel = option.getAttribute('data-source-label') || option.textContent;
-            help.textContent = available ? '本次使用' + sourceLabel + '，DeepSeek 计为一票。' :
-                deepseekSource.value === 'cloud' ? '云端 API 尚未就绪，请在“API 设置”中配置自己的 DeepSeek Key。' :
-                '本地 Ollama 尚未就绪，请启动服务并确认已有 DeepSeek 模型。';
-        }
-    }
     function updateSelection(changedInput) {
         if (busy) return;
         if (currentMode() === 'single') {
@@ -90,10 +61,6 @@
     }
     modelInputs.forEach(function (input) { input.addEventListener('change', function () { updateSelection(input); }); });
     modeInputs.forEach(function (input) { input.addEventListener('change', function () { updateSelection(); }); });
-    if (deepseekSource) deepseekSource.addEventListener('change', function () {
-        updateDeepSeekSource();
-        updateSelection();
-    });
     message.addEventListener('input', updateMessage);
     example.hidden = false;
     clear.hidden = false;
@@ -105,7 +72,6 @@
     });
     clear.addEventListener('click', function () { message.value = ''; updateMessage(); message.focus(); });
     updateMessage();
-    updateDeepSeekSource();
     updateSelection();
 
     function createLivePanel(inputs) {
@@ -132,19 +98,13 @@
         panel.appendChild(progress);
         var list = node('div', 'risk-live-members');
         var rows = new Map();
-        inputs.forEach(function (input) {
+        inputs.forEach(function (input, index) {
             var label = input.closest('.risk-model').querySelector('.risk-model-title strong');
             var row = node('article', 'risk-live-member');
             row.dataset.status = 'queued';
             row.dataset.modelId = input.value;
-            var modelTitle = node('h3', '', label ? label.textContent : input.value);
+            var modelTitle = node('h3', '', label ? label.textContent : '分析模型 ' + (index + 1));
             row.appendChild(modelTitle);
-            var source = node('span', 'risk-live-source');
-            if (input.value === 'deepseek_r1' && deepseekSource) {
-                source.textContent = deepseekSource.options[deepseekSource.selectedIndex].getAttribute('data-source-label') || '';
-            }
-            source.hidden = !source.textContent;
-            row.appendChild(source);
             var status = node('span', 'risk-live-status', statuses.queued);
             var score = node('strong', 'risk-live-score', '—');
             var reason = node('p', 'risk-live-reason', '轮到此模型时会开始分析。');
@@ -152,7 +112,7 @@
             row.appendChild(score);
             row.appendChild(reason);
             list.appendChild(row);
-            rows.set(input.value, {row: row, title: modelTitle, source: source, status: status, score: score, reason: reason});
+            rows.set(input.value, {row: row, title: modelTitle, status: status, score: score, reason: reason});
         });
         panel.appendChild(list);
         box.replaceChildren(panel);
@@ -163,11 +123,7 @@
                 var item = rows.get(member.id);
                 if (!item) throw new Error('返回了未知模型，请重新检测。');
                 item.row.dataset.status = member.status;
-                if (member.display_name) item.title.textContent = member.display_name;
-                if (member.source_label) {
-                    item.source.textContent = member.source_label;
-                    item.source.hidden = false;
-                }
+                if (member.ui_display_name) item.title.textContent = member.ui_display_name;
                 item.status.textContent = statuses[member.status] || '处理中';
                 if (done) {
                     completed.add(member.id);

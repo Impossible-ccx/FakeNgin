@@ -8,20 +8,14 @@ import sqlite3
 import threading
 import uuid
 
-from checkmodel.ensemble import get_risk_models, iter_risk_check, validate_risk_request
+from checkmodel.ensemble import iter_risk_check, validate_risk_request
 
-from . import dataset, db, reports
+from . import dataset, db, models as web_models, reports
 
 ACTIVE_STATUSES = ("queued", "running", "cancelling")
 _lock = threading.RLock()
 _initialized_paths = set()
 _workers = {}
-_job_cloud_models = {}
-
-
-def _release_cloud_model(job_id):
-    with _lock:
-        _job_cloud_models.pop(job_id, None)
 
 
 def _now():
@@ -138,34 +132,23 @@ def initialize():
                     "UPDATE risk_batches SET status = 'interrupted', updated_at = ?, payload_json = ? WHERE id = ?",
                     (now, _json(job), job["id"]),
                 )
-                _job_cloud_models.pop(job["id"], None)
         _initialized_paths.add(directory)
 
 
-def create_batch(rows, model_ids, mode="vote", deepseek_source=None, cloud_model=None):
+def create_batch(rows, model_ids, mode="vote", deepseek_source="local"):
     """所有输入通过后才落任务；队列由一个后台线程顺序执行。"""
+    deepseek_source = web_models.validate_web_source(deepseek_source)
     _, model_ids = validate_risk_request("验证批量检测配置", model_ids, mode, deepseek_source)
     resolved = dataset.resolve_rows(rows)
-    models = get_risk_models(deepseek_source, cloud_model=cloud_model)
+    models = web_models.list_web_models()
     available_ids = {model["id"] for model in models if model["available"]}
     if not any(model_id in available_ids for model_id in model_ids):
         raise ValueError("所选模型当前均不可用，请连接相应来源后再开始批量检测")
     initialize()
-    uses_deepseek = "deepseek_r1" in model_ids
-    if uses_deepseek and deepseek_source is None:
-        deepseek_source = next(model["source"] for model in models if model["id"] == "deepseek_r1")
-    uses_cloud = uses_deepseek and deepseek_source == "cloud"
-    captured_cloud = cloud_model is not None and uses_cloud
-    credential_mode = getattr(cloud_model, "credential_mode", "missing") if captured_cloud else (
-        "default" if uses_cloud else "local"
-    )
-    if credential_mode not in ("personal", "expired", "missing", "default", "local"):
-        credential_mode = "missing"
     now = _now()
     job = {
         "id": str(uuid.uuid4()), "status": "queued", "created_at": now, "updated_at": now,
         "model_ids": model_ids, "mode": mode, "deepseek_source": deepseek_source,
-        "credential_mode": credential_mode,
         "total": len(resolved), "completed_count": 0, "saved_count": 0, "failed_count": 0,
         "save_failed_count": 0, "current_index": None, "cancel_requested": False,
         "error": None, "items": [],
@@ -181,12 +164,9 @@ def create_batch(rows, model_ids, mode="vote", deepseek_source=None, cloud_model
                 "INSERT INTO risk_batches (id, status, created_at, updated_at, payload_json) VALUES (?, ?, ?, ?, ?)",
                 (job["id"], job["status"], now, now, _json(job)),
             )
-        if captured_cloud:
-            _job_cloud_models[job["id"]] = cloud_model
     try:
         _start_worker()
     except Exception:
-        _release_cloud_model(job["id"])
         job.update(status="interrupted", error="后台任务未能启动，请稍后重新提交。")
         _save_job(job)
         raise RuntimeError("Batch worker could not start") from None
@@ -200,7 +180,6 @@ def _cancel_requested(job_id, directory):
 
 
 def cancel_batch(job_id):
-    cancelled = False
     with _connection() as connection:
         connection.execute("BEGIN IMMEDIATE")
         row = connection.execute("SELECT * FROM risk_batches WHERE id = ?", (job_id,)).fetchone()
@@ -217,9 +196,6 @@ def cancel_batch(job_id):
                 "UPDATE risk_batches SET cancel_requested = 1, status = ?, updated_at = ?, payload_json = ? WHERE id = ?",
                 (status, _now(), _json(job), job_id),
             )
-            cancelled = status == "cancelled"
-    if cancelled:
-        _release_cloud_model(job_id)
     return get_batch(job_id)
 
 
@@ -262,7 +238,7 @@ def latest_reports(references):
 
 
 def run_batch(job_id, directory=None):
-    """任务结束或异常退出时释放个人模型快照，不在持久化数据中留下密钥。"""
+    """只执行已入队的本地任务；不恢复旧云端调用。"""
     directory = directory or _directory()
     with _lock:
         with _connection(directory) as connection:
@@ -273,21 +249,24 @@ def run_batch(job_id, directory=None):
             ).rowcount
         if not claimed:
             return
-        cloud_model = _job_cloud_models.get(job_id)
-    try:
-        return _run_batch(job_id, directory, cloud_model)
-    finally:
-        _release_cloud_model(job_id)
+    return _run_batch(job_id, directory)
 
 
-def _run_batch(job_id, directory, cloud_model):
+def _run_batch(job_id, directory):
     """执行一个已入队任务；公开给后台 worker 与无网络的同步测试。"""
     job = get_batch(job_id, directory)
-    if job.get("credential_mode") in ("personal", "expired", "missing") and cloud_model is None:
-        # Every web cloud job captures an override, including unavailable sentinels.
-        # A missing in-memory snapshot can never authorize use of a server-owned key.
-        from .api_credentials import ExpiredCloudModel, MissingCloudModel
-        cloud_model = MissingCloudModel() if job["credential_mode"] == "missing" else ExpiredCloudModel()
+    if job.get("deepseek_source") not in (None, "local"):
+        job.update(status="interrupted", current_index=None,
+                   error="当前网页不再运行旧连接方式的任务，请重新选择分析模型创建任务。")
+        for item in job["items"]:
+            if item["status"] in ("pending", "running"):
+                item["status"] = "interrupted"
+                for member in item["members"]:
+                    if member.get("status") == "running":
+                        member["status"] = "interrupted"
+        _save_job(job, directory)
+        return
+    job["deepseek_source"] = "local"
     for item in job["items"]:
         if _cancel_requested(job_id, directory):
             _finish_cancelled(job, directory)
@@ -298,8 +277,7 @@ def _run_batch(job_id, directory, cloud_model):
         iterator = None
         finished_members = 0
         try:
-            iterator = iter_risk_check(item["message"], job["model_ids"], job["mode"], job["deepseek_source"],
-                                       cloud_model=cloud_model)
+            iterator = iter_risk_check(item["message"], job["model_ids"], job["mode"], "local")
             while True:
                 # A full row can still produce its final aggregation without another model call.
                 if _cancel_requested(job_id, directory) and finished_members < len(job["model_ids"]):
@@ -312,12 +290,16 @@ def _run_batch(job_id, directory, cloud_model):
                         raise RuntimeError("missing completed result")
                     break
                 if event["type"] == "member_start":
+                    event["member"]["ui_display_name"] = web_models.model_label(event["member"])
                     item["members"].append(event["member"])
                 elif event["type"] == "member_complete":
+                    event["member"]["ui_display_name"] = web_models.model_label(event["member"])
                     item["members"][-1] = event["member"]
                     finished_members += 1
                 elif event["type"] == "complete":
                     result = event["result"]
+                    for member in result["members"]:
+                        member["ui_display_name"] = web_models.model_label(member)
                     result.update(batch_id=job_id, batch_index=item["index"], batch_total=job["total"],
                                   dataset_ref={key: item[key] for key in ("file", "row", "signature")})
                     item.update(status="completed", result=result, members=result["members"])
@@ -370,7 +352,7 @@ def _worker_loop(directory):
         try:
             run_batch(row["id"], directory)
         except Exception:
-            # Do not retry a task whose last model request may already have been billed.
+            # Avoid repeating a task whose latest model call may already have completed.
             try:
                 job = get_batch(row["id"], directory)
                 job.update(status="interrupted", current_index=None,

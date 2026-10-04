@@ -85,6 +85,7 @@ class HistoryStreamTests(unittest.TestCase):
                 self.assertEqual(finished["type"], "member_complete")
                 self.assertEqual(finished["member"]["id"], model_id)
                 self.assertEqual(finished["member"]["status"], "ok")
+                self.assertEqual(finished["member"]["ui_display_name"], "分析模型 {}".format(index + 1))
                 self.model_instances[model_id].check.assert_called_once()
                 completed_members.append(finished["member"])
             complete = next(received)
@@ -98,7 +99,11 @@ class HistoryStreamTests(unittest.TestCase):
         finally:
             response.close()
         stored = self.json_report(complete["record_id"])
-        self.assertEqual(stored["result"]["members"], completed_members)
+        # UI labels are transport-only; every analysis field must match storage.
+        self.assertEqual(stored["result"]["members"], [
+            {key: value for key, value in member.items() if key != "ui_display_name"}
+            for member in completed_members
+        ])
         self.assertEqual(stored["result"]["decision_method"], "mean_fallback")
         self.assertEqual(stored["result"]["mean_score"], 50)
         self.assertEqual(reports.list_reports()["total"], 1)
