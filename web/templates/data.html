@@ -8,7 +8,7 @@
             <tr>
                 <th>消息内容</th>
                 <th>来源 / 时间</th>
-                <th>检测结果</th>
+                <th>虚假概率</th>
                 <th>人工标签</th>
             </tr>
         </thead>
@@ -25,11 +25,11 @@
                     <span>{{ r.source or '未填写来源' }}</span>
                     <time>{{ r.publish_time or '未填写时间' }}</time>
                 </td>
-                <td class="batch-result-cell" data-label="检测结果">
-                    {% if r.risk_score %}
-                    {% set score = r.risk_score | float %}
-                    {% set level = 'high' if score >= 70 else ('medium' if score >= 40 else 'low') %}
-                    <span class="batch-result-badge risk-level-{{ level }}" title="{{ r.risk_model }} · {{ r.risk_reason }}">{{ r.risk_score }} / 100</span>
+                <td class="batch-result-cell" data-label="虚假概率">
+                    {% if r.fake_probability %}
+                    {% set probability = r.fake_probability | float %}
+                    {% set level = 'high' if probability >= 70 else ('medium' if probability >= 40 else 'low') %}
+                    <span class="batch-result-badge risk-level-{{ level }}">{{ r.fake_probability }}%</span>
                     {% else %}
                     <span class="batch-result-empty">待检测</span>
                     {% endif %}
