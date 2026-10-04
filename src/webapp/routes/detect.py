@@ -5,11 +5,11 @@ import json
 from flask import Response, current_app, jsonify, render_template, request, stream_with_context, url_for
 
 from checkmodel.ensemble import (
-    MAX_MESSAGE_LENGTH, get_risk_models, iter_risk_check, run_risk_check, validate_risk_request,
+    MAX_MESSAGE_LENGTH, iter_risk_check, run_risk_check, validate_risk_request,
 )
 from . import main
 from .. import reports
-from ..models import model_label
+from ..models import list_web_models, model_label
 
 
 def _save_completed(context):
@@ -26,7 +26,7 @@ def _save_completed(context):
 
 
 def _context(form=None):
-    models = get_risk_models()
+    models = list_web_models()
     selected_ids = [model["id"] for model in models]
     context = {
         "models": models,

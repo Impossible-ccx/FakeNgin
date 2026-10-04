@@ -1,105 +1,47 @@
+{% from "_ui.html" import model_mark, method_label %}
 {% if error %}
-<section class="risk-error" data-risk-result role="alert" tabindex="-1">
-    <h2>本次检测未能完成</h2>
-    <p>{{ error }}</p>
-    <p class="risk-help">输入内容已保留，请检查消息与模型选择后重试。</p>
-</section>
+<section class="risk-error" data-risk-result role="alert" tabindex="-1"><span class="error-symbol" aria-hidden="true">!</span><div><h2>本次检测未能完成</h2><p>{{ error }}</p><p class="risk-help">输入已保留，调整后可以重新开始。</p></div></section>
 {% elif result %}
 {% set failed_count = (result.members | selectattr('status', 'equalto', 'error') | list | length) + (result.members | selectattr('status', 'equalto', 'unavailable') | list | length) %}
 {% set abstained_count = result.members | selectattr('status', 'equalto', 'abstained') | list | length %}
-{% set status_labels = {'ok': '已完成', 'error': '失败', 'unavailable': '不可用', 'abstained': '弃权'} %}
-<section class="risk-report" data-risk-result aria-labelledby="risk-result-title">
-    <header class="risk-report-heading">
-        <div>
-            <p class="risk-eyebrow">{% if result.mode == 'vote' %}多模型投票{% else %}单模型分析{% endif %}</p>
-            <h2 id="risk-result-title" class="risk-result-title" tabindex="-1">检测结果</h2>
-        </div>
-        <span class="risk-elapsed">总耗时 {{ '%.1f' | format(result.elapsed_seconds) }} 秒</span>
-    </header>
-
+{% set valid_members = result.members | selectattr('status', 'equalto', 'ok') | list %}
+{% set status_labels = {'ok': '已完成', 'error': '失败', 'unavailable': '未连接', 'abstained': '弃权'} %}
+<section id="risk-report-content" class="risk-report" data-risk-result aria-labelledby="risk-result-title">
+    <header class="risk-report-heading"><div><p class="dash-eyebrow">ANALYSIS REPORT</p><h2 id="risk-result-title" class="risk-result-title" tabindex="-1">本次分析报告</h2></div><span class="risk-elapsed"><span aria-hidden="true">◷</span> 总耗时 {{ '%.1f' | format(result.elapsed_seconds) }} 秒</span></header>
     <div class="risk-verdict risk-level-{{ result.level }}">
-        <div class="risk-verdict-copy">
-            <p class="risk-verdict-caption">{% if result.decision_method == 'majority' %}多数投票{% elif result.decision_method == 'mean_fallback' %}平均分兜底{% elif result.mode == 'single' %}单模型判断{% else %}暂无有效结果{% endif %}</p>
-            <h3>{{ result.label }}</h3>
-            <p>{{ result.warning }}</p>
-        </div>
-        {% if result.decision_method == 'majority' %}
+        <div class="risk-verdict-copy"><span class="risk-method-badge">{{ method_label(result.decision_method) }}</span><h3>{{ result.label }}</h3>{% set decision_note = result.warning | default('', true) | replace('语言风险不代表事实真假，模型一致也不等于事实已被核实。', '') | trim %}{% if decision_note %}<p>{{ decision_note }}</p>{% endif %}</div>
         <div class="risk-agreement">
-            <strong>{{ result.agreement_count }}<span> / {{ result.selected_count }}</span></strong>
-            <span>获胜等级票数 / 选定模型数</span>
+            {% if result.decision_method == 'majority' %}<span class="risk-score-caption">获胜等级票数</span><strong>{{ result.agreement_count }}<span> / {{ result.selected_count }}</span></strong><span>所选模型中支持该等级的票数</span>
+            {% elif result.decision_method == 'mean_fallback' %}<span class="risk-score-caption">有效模型平均分</span><strong>{{ '%.1f' | format(result.mean_score) }}<span> / 100</span></strong><span>{{ result.success_count }} 个有效结果 · {{ result.selected_count }} 个所选模型</span>
+            {% elif result.decision_method == 'single' and valid_members %}<span class="risk-score-caption">模型风险评分</span><strong>{{ '%.1f' | format(valid_members[0].score) }}<span> / 100</span></strong><span>单模型分析结果</span>
+            {% else %}<span class="risk-score-caption">有效结果</span><strong>0<span> / {{ result.selected_count }}</span></strong><span>本次未取得有效分数</span>{% endif %}
         </div>
-        {% elif result.decision_method == 'mean_fallback' %}
-        <div class="risk-agreement">
-            <strong>{{ '%.1f' | format(result.mean_score) }}<span> / 100 分</span></strong>
-            <span>{{ result.success_count }} / {{ result.selected_count }} 个模型的有效分数均值</span>
-        </div>
-        {% endif %}
     </div>
-
+    {% if result.mode == 'vote' %}
+    <div class="risk-votes" aria-label="各风险等级票数">{% for level, label in [('low','低风险'),('medium','中风险'),('high','高风险')] %}<div class="risk-vote risk-level-{{ level }}"><span><i></i>{{ label }}</span><strong>{{ result.votes[level] }} <small>票</small></strong><progress class="risk-vote-track" value="{{ result.votes[level] }}" max="{{ result.selected_count }}" aria-label="{{ label }} {{ result.votes[level] }} 票"></progress></div>{% endfor %}</div>
+    {% endif %}
     {% if result.decision_method == 'mean_fallback' %}
-    <div class="risk-fallback-note">
-        <strong>平均分兜底{% if result.success_count == 1 %} · 仅 1 个有效结果{% endif %}</strong>
-        <p>{{ result.fallback_reason }}{% if result.success_count == 1 %} 本次结果仅来自一个模型，未形成多模型共识。{% endif %}</p>
-        <p>仅对成功返回的风险分取算术平均；失败、不可用和弃权不参与均值计算。均分不是真假概率。</p>
-    </div>
+    <div class="risk-fallback-note"><div><span class="formula-symbol" aria-hidden="true">∑</span><strong>平均分兜底{% if result.success_count == 1 %}<span class="fallback-single">仅 1 个有效结果</span>{% endif %}</strong></div><p>{{ result.fallback_reason }}</p><p class="risk-formula">({% for member in valid_members %}{{ '%g' | format(member.score) }}{% if not loop.last %} + {% endif %}{% endfor %}) ÷ {{ result.success_count }} ≈ <strong>{{ '%.1f' | format(result.mean_score) }}</strong> → {{ result.label }}</p><span>只使用成功模型的分数；失败、未连接和弃权不参与均值。</span></div>
     {% endif %}
-
-    {% if result.mode == 'vote' %}
-    <div class="risk-votes" aria-label="各风险等级票数">
-        {% for level, label in [('low', '低风险'), ('medium', '中风险'), ('high', '高风险')] %}
-        <div class="risk-vote risk-level-{{ level }}">
-            <span>{{ label }}</span><strong>{{ result.votes[level] }} <small>票</small></strong>
-            <progress class="risk-vote-track" value="{{ result.votes[level] }}" max="{{ result.selected_count }}" aria-label="{{ label }} {{ result.votes[level] }} 票，共选定 {{ result.selected_count }} 个模型"></progress>
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
-
-    <dl class="risk-report-facts">
-        {% if result.mode == 'vote' %}
-        <div><dt>多数门槛</dt><dd>{{ result.majority_required }} 票 / {{ result.selected_count }} 个模型</dd></div>
-        {% endif %}
-        <div><dt>有效结果</dt><dd>{{ result.success_count }} / {{ result.selected_count }}</dd></div>
-        <div><dt>失败或不可用</dt><dd>{{ failed_count }}</dd></div>
-        <div><dt>弃权</dt><dd>{{ abstained_count }}</dd></div>
-    </dl>
-    {% if result.mode == 'vote' %}
-    <p class="risk-voting-note">每个模型按风险等级投一票，多数门槛按选定模型总数计算。未达到多数票时，对有效风险分取算术平均后分档；没有有效结果时显示无法判断。失败、不可用和弃权不降低多数门槛，也不参与均值计算。</p>
-    {% endif %}
-
-    <div class="risk-members-heading">
-        <h3>逐模型结果</h3>
-        <p>低风险 &lt; 40 · 中风险 40–&lt;70 · 高风险 ≥ 70（按原始分数分档）</p>
-    </div>
+    <dl class="risk-report-facts">{% if result.mode == 'vote' %}<div><dt>多数门槛</dt><dd>{{ result.majority_required }} <small>票</small></dd></div>{% endif %}<div><dt>有效结果</dt><dd>{{ result.success_count }} <small>/ {{ result.selected_count }}</small></dd></div><div><dt>失败 / 未连接</dt><dd>{{ failed_count }}</dd></div><div><dt>弃权</dt><dd>{{ abstained_count }}</dd></div></dl>
+    <div class="risk-members-heading"><div><p class="dash-eyebrow">MODEL BREAKDOWN</p><h3>逐模型判断与理由</h3></div><p class="risk-thresholds"><span>低 &lt;40</span><span>中 40–&lt;70</span><span>高 ≥70</span></p></div>
     <div class="risk-members">
         {% for member in result.members %}
-        <article class="risk-member">
-            <header class="risk-member-heading">
-                <h4>{{ member.display_name }}</h4>
-                <span class="risk-member-status risk-status-{{ member.status }}">{{ status_labels.get(member.status, '未知状态') }}</span>
-            </header>
-            <div class="risk-member-summary">
-                {% if member.score is not none %}
-                <div class="risk-member-score"><strong>{{ '%.1f' | format(member.score) }}</strong><span> / 100 分</span></div>
-                {% else %}
-                <span class="risk-missing-score">未获得有效风险分</span>
-                {% endif %}
-                <span class="risk-level-label risk-level-{{ member.level or 'uncertain' }}">{{ member.label }}</span>
-            </div>
-            {% if member.reason %}<p class="risk-member-reason">{{ member.reason }}</p>{% endif %}
+        <article class="risk-member risk-level-{{ member.level or 'uncertain' }}">
+            <header class="risk-member-heading">{{ model_mark(member.id, loop.index) }}<h4>{{ member | model_label(loop.index) }}</h4><span class="risk-member-status risk-status-{{ member.status }}">{{ status_labels.get(member.status,'未知状态') }}</span></header>
+            <div class="risk-member-summary">{% if member.score is not none %}<div class="risk-member-score"><strong>{{ '%.1f' | format(member.score) }}</strong><span> / 100</span></div>{% else %}<span class="risk-missing-score">未获得有效分数</span>{% endif %}<span class="risk-level-label">{{ member.label }}</span></div>
+            {% if member.score is not none %}<progress class="risk-score-track" value="{{ member.score }}" max="100" aria-label="{{ member | model_label(loop.index) }} 风险评分 {{ member.score }}，满分 100"></progress><div class="risk-score-scale"><span>0</span><span>40</span><span>70</span><span>100</span></div>{% endif %}
+            {% if member.reason %}{% if member.reason | length > 180 %}<details class="risk-reason-details"><summary>展开完整判断理由 <span aria-hidden="true">＋</span></summary><p class="risk-member-reason">{{ member.reason }}</p></details>{% else %}<p class="risk-member-reason">{{ member.reason }}</p>{% endif %}{% endif %}
             {% if member.error %}<p class="risk-member-error">{{ member.error }}</p>{% endif %}
             {% if member.status == 'ok' and not member.reason %}<p class="risk-member-reason">模型未提供判断理由。</p>{% endif %}
-            {% if member.status == 'abstained' %}<p class="risk-member-note">本次弃权，不计入任何风险等级的票数。</p>{% endif %}
-            <footer class="risk-member-footer">耗时 {{ '%.1f' | format(member.elapsed_seconds) }} 秒</footer>
+            {% if member.status == 'abstained' %}<p class="risk-member-note">本次弃权，不计入风险等级票数。</p>{% endif %}
+            <footer class="risk-member-footer"><span>{{ status_labels.get(member.status,'未知状态') }}</span><span>耗时 {{ '%.1f' | format(member.elapsed_seconds) }} 秒</span></footer>
         </article>
         {% endfor %}
     </div>
-    <p class="risk-report-disclaimer">这些结果来自模型对文本的风险判断，尚未完成外部事实核验。低风险不保证真实，高风险不等于虚假；模型多数意见也不代表事实结论。</p>
+    <details class="risk-rule-details"><summary>查看聚合规则与分档说明 <span aria-hidden="true">＋</span></summary><p>低风险：分数小于 40；中风险：40 至小于 70；高风险：70 及以上。等级按原始分数划分，展示分数保留一位小数。</p><p>每个有效模型按等级投一票，多数门槛为所选模型数的一半以上。没有多数票时对有效分数取算术平均再分档；没有有效分数则不生成风险等级。</p></details>
+    {% include "_report_tools.html" %}
 </section>
-{% include "_report_tools.html" %}
 {% else %}
-<section class="risk-result-empty" data-risk-result>
-    <span class="risk-empty-icon" aria-hidden="true">≡</span>
-    <div><h2>等待开始检测</h2><p>提交消息后，这里将显示风险结论与每个模型的判断依据。</p></div>
-</section>
+<section class="risk-result-empty" data-risk-result><div class="empty-orbit" aria-hidden="true"><span>⌁</span></div><div><p class="dash-eyebrow">READY WHEN YOU ARE</p><h2>等待开始检测</h2><p>提交后，模型进度、评分与分析报告会在这里逐一呈现。</p></div><div class="empty-model-marks" aria-hidden="true">{{ model_mark('', 1) }}{{ model_mark('', 2) }}{{ model_mark('', 3) }}</div></section>
 {% endif %}

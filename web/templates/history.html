@@ -1,12 +1,29 @@
 {% extends "base.html" %}
+{% from "_ui.html" import model_mark, method_label %}
 {% block title %}FakeNgin · 检测历史{% endblock %}
 {% block content %}
-<section class="panel">
-    <div class="panel-head"><h1>检测历史</h1><a class="btn btn-primary" href="{{ url_for('main.detect') }}">新建检测</a></div>
-    <p>保存每一次完整检测的原文、评分、理由和聚合结果。共 {{ total }} 份报告。</p>
-    <form class="search-bar" action="{{ url_for('main.history') }}" method="get"><label for="history-query">搜索报告</label><input type="text" id="history-query" name="q" value="{{ query }}" placeholder="按原文查找"><button class="btn btn-primary" type="submit">搜索</button></form>
-    {% if error %}<p class="notice notice-error" role="alert">{{ error }}</p>{% endif %}
-    {% for item in records %}<article class="panel"><p>{{ item.created_at }} · {{ item.result.label }} · {{ item.result.success_count }} / {{ item.result.selected_count }} 个有效结果</p><details><summary>{{ item.message | truncate(160) }}</summary><p>{{ item.message }}</p></details><a class="btn btn-sm" href="{{ url_for('main.report', report_id=item.id) }}">查看报告</a></article>{% else %}<p>暂无匹配的检测报告。</p>{% endfor %}
-    <nav class="pagination" aria-label="历史记录分页">{% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('main.history',q=query,page=page-1) }}">上一页</a>{% endif %}<span>第 {{ page }} / {{ total_pages }} 页</span>{% if page < total_pages %}<a class="btn btn-sm" href="{{ url_for('main.history',q=query,page=page+1) }}">下一页</a>{% endif %}</nav>
-</section>
+<div class="history-workspace">
+    <header class="dash-hero dash-hero-compact">
+        <div><p class="dash-kicker">02 / 服务器检测结果呈现</p><h1>每次分析，都有迹可循。</h1><p>在这里查找已保存的原文、逐模型评分、判断理由与最终结果。</p></div>
+        <div class="dash-hero-aside"><span>当前记录</span><strong>{{ total }}</strong><span>{{ '份匹配报告' if query else '份已保存报告' }}</span></div>
+    </header>
+    <nav class="module-subnav" aria-label="检测结果功能"><a href="{{ url_for('main.detect') }}">新建检测</a><a class="is-current" aria-current="page" href="{{ url_for('main.history') }}">已保存的结果</a></nav>
+    <div class="history-toolbar">
+        <div><h2>检测历史 <span class="history-total">{{ total }}</span></h2><p>{{ '正在筛选原文中包含关键词的报告' if query else '完整检测完成后，报告会自动保存到这里' }}</p></div>
+        <form class="history-search" action="{{ url_for('main.history') }}" method="get"><label class="sr-only" for="history-query">按原文搜索报告</label><input type="search" id="history-query" name="q" value="{{ query }}" placeholder="按消息原文查找"><button class="dash-button dash-button-small" type="submit">搜索</button>{% if query %}<a class="clear-query" href="{{ url_for('main.history') }}">清除</a>{% endif %}</form>
+    </div>
+    {% if error %}<div class="notice notice-error" role="alert">{{ error }}</div>{% endif %}
+    <div class="history-list">
+        {% for item in records %}
+        <article class="history-card">
+            <header class="history-card-top"><span class="history-level risk-level-{{ item.result.level }}"><i aria-hidden="true"></i>{{ item.result.label }}</span><span class="history-method">{{ method_label(item.result.decision_method) }}</span><time datetime="{{ item.created_at }}" data-local-time>{{ item.created_at }}</time></header>
+            <a class="history-message" href="{{ url_for('main.report',report_id=item.id) }}">{{ item.message }}</a>
+            <footer class="history-card-bottom"><div class="history-models">{% for member in item.result.members %}{{ model_mark(member.id,loop.index) }}{% endfor %}<span>{{ item.result.success_count }} / {{ item.result.selected_count }} 个有效结果</span><span class="history-duration">{{ '%.1f' | format(item.result.elapsed_seconds) }} 秒</span></div><a class="history-open" href="{{ url_for('main.report',report_id=item.id) }}">查看报告 <span aria-hidden="true">↗</span></a></footer>
+        </article>
+        {% else %}
+        <div class="history-empty"><div class="empty-orbit" aria-hidden="true"><span>≡</span></div><h2>{{ '没有找到匹配的报告' if query else '从第一条消息开始' }}</h2><p>{{ '试试其他关键词，或清除搜索查看全部记录。' if query else '完成一次检测后，即可在这里重新查看和导出完整分析。' }}</p><a class="dash-button" href="{{ url_for('main.history') if query else url_for('main.detect') }}">{{ '查看全部记录' if query else '新建检测' }} <span aria-hidden="true">↗</span></a></div>
+        {% endfor %}
+    </div>
+    {% if records %}<nav class="pagination dash-pagination" aria-label="历史记录分页">{% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('main.history',q=query,page=page-1) }}">上一页</a>{% else %}<span class="btn btn-sm btn-disabled">上一页</span>{% endif %}<span class="page-info">第 {{ page }} / {{ total_pages }} 页</span>{% if page < total_pages %}<a class="btn btn-sm" href="{{ url_for('main.history',q=query,page=page+1) }}">下一页</a>{% else %}<span class="btn btn-sm btn-disabled">下一页</span>{% endif %}</nav>{% endif %}
+</div>
 {% endblock %}

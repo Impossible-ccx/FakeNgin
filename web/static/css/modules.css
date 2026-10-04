@@ -197,3 +197,71 @@
 @media (prefers-reduced-motion:reduce) {
     .modules-section .tool-card { transition:none; }
 }
+
+/* Results and review share the same reading rhythm as the data workspace. */
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+.risk-model-list { margin-top:2px; }
+.risk-model-copy .risk-model-description { font-size:14px; }
+.risk-model-title strong,.risk-mode-option strong,.risk-member-heading h4 { font-size:14px; }
+.risk-settings-panel .risk-selection-help,.risk-settings-panel .risk-runtime-note { line-height:1.85; }
+.risk-member-reason,.risk-live-reason { color:#506d88; font-size:14px; }
+.risk-reason-details summary,.risk-rule-details summary { font-size:14px; }
+.risk-rule-details p { font-size:14px; color:#62788e; }
+.risk-verdict-copy p { overflow-wrap:anywhere; }
+.risk-fallback-note .risk-formula { overflow-wrap:anywhere; }
+.report-source-heading h1 { margin:0; color:#365877; font-size:20px; font-weight:600; }
+.report-source-heading { flex-wrap:wrap; }
+.report-source-message { color:#4e6b87; }
+.report-metadata,.report-saved,.export-link,.report-permalink { color:#62788e; }
+.report-actions .dash-button { color:#fff; }
+.history-toolbar p,.history-method,.history-card-top time,.history-models > span:not(.model-mark),.history-empty > p:not(.dash-eyebrow) { color:#62788e; }
+.history-search { flex-wrap:wrap; }
+.history-search input { font-size:14px; }
+.history-card .history-message { color:#4b6781; }
+.history-open { color:#447dad; }
+.verify-list-section { margin-top:30px; }
+.verify-workspace .dash-hero-aside strong small { font-size:23px; font-weight:400; }
+.verify-queue-meta,.verify-record-source,.verify-record-meta,.verify-section-heading > span { color:#62788e; }
+.verify-queue-meta strong { color:#4c6b86; font-size:13px; }
+.verify-model-summary { margin:-7px 0 19px; color:#62788e; }
+.verify-machine-score strong { font-weight:600; color:#4b738d; }
+.verify-legacy-reason { margin:-4px 0 21px; padding:11px 14px; border:1px solid #dfe8f0; border-radius:8px; background:#f8fbfd; color:#62788e; font-size:14px; }
+.verify-legacy-reason summary { cursor:pointer; }
+.verify-legacy-reason p { margin:12px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.9; }
+.verify-record-focused { border-color:#83bcb2; box-shadow:0 0 0 2px #c7e5df60; }
+.verify-record:target { border-color:#83bcb2; scroll-margin-top:115px; }
+.verify-field > span,.verify-nature-field legend { color:#62788e; font-size:14px; }
+.verify-field select { width:100%; min-width:0; padding:11px 12px; border:1px solid #d8e4f1; border-radius:8px; background:#fbfcfe; color:#526e8a; font:inherit; font-size:14px; }
+.verify-field select:focus-visible { outline:3px solid #a2c9e757; outline-offset:2px; border-color:#8ab2d5; }
+.verify-record-tools > details > summary { font-size:14px; }
+.verify-record-tools .verify-text-link { font-size:14px; }
+.verify-record-tools > details[open] { width:100%; }
+.verify-empty-copy { color:#62788e; font-size:14px; }
+.verify-filter-nav a { color:#58758d; font-size:14px; }
+.verify-filter-nav a span { margin-left:6px; }
+.verify-queue-note .verify-text-link { margin-left:9px; }
+.verify-record-empty p { color:#62788e; font-size:14px; }
+
+@media (max-width:520px) {
+    .risk-mode-option strong,.risk-model-title strong,.risk-member-heading h4,.verify-choice,.keyword-input-wrap input { font-size:14px; }
+    .risk-help,.keyword-empty p,.verify-record-text { font-size:14px; }
+    .risk-model-copy .risk-model-description { font-size:13px; }
+    .risk-model-title { gap:4px; }
+    .risk-model-title .risk-availability { font-size:11px; }
+    .history-search { width:100%; }
+    .history-search input { width:0; min-width:0; flex:1 1 130px; }
+    .history-search .clear-query { flex-basis:100%; }
+    .history-card-bottom { flex-wrap:wrap; }
+    .history-models { flex:1 1 130px; }
+    .report-source-heading h1 { font-size:18px; }
+    .report-actions { flex-wrap:wrap; }
+    .verify-queue-actions .verify-secondary-button { min-height:40px; }
+    .verify-filter-nav { gap:7px; }
+    .verify-filter-nav a { flex:1; padding:10px 8px; text-align:center; white-space:nowrap; font-size:13px; }
+    .verify-record-meta { gap:9px; flex-direction:column; }
+    .verify-queue-note .verify-text-link { display:inline-block; margin:5px 0 0; }
+}
+
+@media (max-width:360px) {
+    .modules-overview .overview-copy h1 { font-size:24px; }
+}

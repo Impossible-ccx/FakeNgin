@@ -199,7 +199,8 @@ class DetectRouteTests(unittest.TestCase):
         self.assertTrue(result["members"][2]["error"])
         html = response.get_data(as_text=True)
         self.assertIn(result["members"][2]["error"], html)
-        self.assertIn(result["members"][2]["display_name"], html)
+        self.assertIn("分析模型 3", html)
+        self.assertNotIn(result["members"][2]["display_name"], html)
 
     def test_only_one_success_is_explicit_mean_fallback_with_original_count(self):
         for model_id in RISK_IDS[1:]:

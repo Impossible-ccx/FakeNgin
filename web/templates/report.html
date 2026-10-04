@@ -1,8 +1,17 @@
 {% extends "base.html" %}
+{% set report_view = true %}
 {% block title %}FakeNgin · 检测报告{% endblock %}
 {% block content %}
-<a class="btn btn-sm" href="{{ url_for('main.history') }}">返回检测历史</a>
-{% if record %}<section class="panel"><h1>检测报告</h1><p>{{ record.created_at }} · 报告编号 {{ record.id }}</p><h2>分析原文</h2><p style="white-space:pre-wrap;overflow-wrap:anywhere">{{ record.message }}</p></section>{% endif %}
-{% include "_detect_result.html" %}
+<div class="risk-workspace report-workspace">
+    <nav class="module-subnav" aria-label="检测结果功能"><a href="{{ url_for('main.detect') }}">新建检测</a><a class="is-current" href="{{ url_for('main.history') }}">已保存的结果</a></nav>
+    <a class="back-link" href="{{ url_for('main.history') }}"><span aria-hidden="true">←</span> 返回检测历史</a>
+    {% if record %}
+    <section class="report-source" aria-labelledby="report-source-title">
+        <header class="report-source-heading"><h1 id="report-source-title">检测报告 · 分析原文</h1><span>{{ record.message | length }} 字符</span></header>
+        <p class="report-source-message">{{ record.message }}</p>
+        <details class="report-metadata"><summary>查看记录信息</summary><dl><div><dt>保存时间</dt><dd><time datetime="{{ record.created_at }}" data-local-time>{{ record.created_at }}</time></dd></div><div><dt>报告编号</dt><dd>{{ record.id }}</dd></div></dl></details>
+    </section>
+    {% endif %}
+    {% include "_detect_result.html" %}
+</div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='js/report.js') }}" defer></script>{% endblock %}

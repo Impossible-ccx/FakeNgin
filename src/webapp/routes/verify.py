@@ -7,7 +7,7 @@ import threading
 from flask import flash, redirect, render_template, request, session, url_for
 
 from checkmodel.ensemble import MAX_MESSAGE_LENGTH
-from .. import auth, newsdata
+from .. import auth, batches, newsdata
 from . import main
 
 PAGE_SIZE = 20
@@ -57,6 +57,11 @@ def verify():
     check_row, check_state = _next_check(message_table)
     if focus_row is not None:
         check_row, check_state = focus_row, "ready"
+    report_rows = rows + ([check_row] if check_row is not None else [])
+    references = [dict(file=row["_file"], row=int(row["_row"]), signature=row["_signature"]) for row in report_rows]
+    latest = batches.latest_reports(references)
+    for row in report_rows:
+        row["latest_report"] = latest.get((row["_file"], int(row["_row"]), row["_signature"]))
     return render_template(
         "verify.html", rows=rows, nature_options=newsdata.NATURES,
         verify_natures=newsdata.VERIFY_NATURES, check_row=check_row, check_state=check_state,

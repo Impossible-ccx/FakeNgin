@@ -1,102 +1,52 @@
 {% extends "base.html" %}
+{% from "_ui.html" import model_mark %}
 {% set available_models = models | selectattr('available') | list %}
-
-{% block title %}FakeNgin · 风险检测工作台{% endblock %}
+{% block title %}FakeNgin · 检测结果{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ url_for('static',filename='css/progress.css') }}">{% endblock %}
-
 {% block content %}
 <div class="risk-workspace">
-    <p><a class="btn btn-sm" href="{{ url_for('main.history') }}">查看已保存的检测结果</a></p>
-    <header class="risk-page-heading">
-        <div>
-            <p class="risk-eyebrow">FAKENGIN / 文本风险分析</p>
-            <h1>风险检测工作台</h1>
-            <p class="risk-intro">让多个模型独立判断，查看风险分、理由与投票结果。</p>
-        </div>
-        <span class="risk-local-badge"><span aria-hidden="true">●</span> 本地模型推理</span>
+    <header class="dash-hero dash-hero-compact">
+        <div><p class="dash-kicker">02 / 服务器检测结果呈现</p><h1>从消息原文，到完整检测结果。</h1><p>提交消息后，实时查看服务器返回的模型进度、风险评分和判断理由。</p></div>
+        <div class="dash-hero-aside"><span class="dash-hero-status"><i></i> 模型服务</span><strong><span id="risk-available-count">{{ available_models | length }}</span></strong><span>当前可用模型</span></div>
     </header>
-
+    <nav class="module-subnav" aria-label="检测结果功能"><a class="is-current" aria-current="page" href="{{ url_for('main.detect') }}">新建检测</a><a href="{{ url_for('main.history') }}">已保存的结果 <span aria-hidden="true">↗</span></a></nav>
+    <div class="workspace-section-title"><span class="section-number">01</span><h2>配置本次分析</h2><span class="section-line"></span><span>输入 · 选择 · 检测</span></div>
     <form id="detect-form" class="risk-form" method="post" action="{{ url_for('main.detect') }}"
           data-check-url="{{ url_for('main.detect_check') }}" data-stream-url="{{ url_for('main.detect_stream') }}">
         <div class="risk-input-panel">
-            <div class="risk-section-heading">
-                <label for="risk-message"><span class="risk-step" aria-hidden="true">01</span> 输入消息</label>
-                <button type="button" id="risk-example" class="risk-text-button" hidden>填入示例</button>
-            </div>
-            <p id="risk-message-help" class="risk-help">粘贴一条需要分析的消息，尽量保留原始上下文。</p>
-            <textarea id="risk-message" class="risk-message" name="message" rows="10"
-                      maxlength="{{ max_message_length }}" required
-                      aria-describedby="risk-message-help risk-char-count"
-                      placeholder="在这里输入或粘贴消息内容…">{{ message }}</textarea>
-            <div class="risk-input-footer">
-                <button type="button" id="risk-clear" class="risk-text-button" hidden>清空内容</button>
-                <span id="risk-char-count" class="risk-char-count">{{ message | length }} / {{ max_message_length }} 字符</span>
-            </div>
-            <div class="risk-reading-note">
-                <span class="risk-note-mark" aria-hidden="true">i</span>
-                <p>风险分反映模型对文本的判断，不代表经过校准的真假概率。低风险不保证真实，高风险不等于虚假。</p>
-            </div>
+            <div class="risk-section-heading"><label for="risk-message">消息内容</label><button type="button" id="risk-example" class="risk-text-button" hidden>填入示例 <span aria-hidden="true">↙</span></button></div>
+            <p id="risk-message-help" class="risk-help">粘贴一条待分析的消息，保留尽可能完整的上下文。</p>
+            <textarea id="risk-message" class="risk-message" name="message" rows="10" maxlength="{{ max_message_length }}" required aria-describedby="risk-message-help risk-char-count" placeholder="把需要分析的消息放在这里…">{{ message }}</textarea>
+            <div class="risk-input-footer"><button type="button" id="risk-clear" class="risk-text-button" hidden>清空内容</button><span id="risk-char-count" class="risk-char-count">{{ message | length }} / {{ max_message_length }} 字符</span></div>
         </div>
-
         <div class="risk-settings-panel">
-            <fieldset class="risk-fieldset">
-                <legend class="risk-section-heading"><span class="risk-step" aria-hidden="true">02</span> 选择检测方式</legend>
+            <fieldset class="risk-fieldset"><legend class="risk-section-heading">分析方式</legend>
                 <div class="risk-mode-options">
-                    <label class="risk-mode-option">
-                        <input type="radio" name="mode" value="vote" {% if available_models | length < 2 %}disabled{% endif %} {% if mode != 'single' %}checked{% endif %}>
-                        <span><strong>多模型投票</strong><small>选择 2–3 个模型</small></span>
-                    </label>
-                    <label class="risk-mode-option">
-                        <input type="radio" name="mode" value="single" {% if mode == 'single' %}checked{% endif %}>
-                        <span><strong>单模型分析</strong><small>选择 1 个模型</small></span>
-                    </label>
+                    <label class="risk-mode-option"><input type="radio" name="mode" value="vote" {% if models | length < 2 %}disabled{% endif %} {% if mode != 'single' %}checked{% endif %}><span><strong>多模型投票</strong><small>交叉比较 2–3 个模型</small></span></label>
+                    <label class="risk-mode-option"><input type="radio" name="mode" value="single" {% if mode == 'single' %}checked{% endif %}><span><strong>单模型分析</strong><small>聚焦一个模型的判断</small></span></label>
                 </div>
             </fieldset>
-
             <fieldset class="risk-fieldset risk-model-fieldset" aria-describedby="risk-selection-help">
-                <legend class="risk-model-legend">参与模型 <span>{{ available_models | length }} / {{ models | length }} 可用</span></legend>
+                <legend class="risk-model-legend">参与模型 <span><span id="risk-model-available-count">{{ available_models | length }}</span> 个可用</span></legend>
                 <div class="risk-model-list">
                     {% for m in models %}
-                    <label class="risk-model {% if not m.available %}risk-model-unavailable{% endif %}">
-                        <input type="checkbox" name="models" value="{{ m.id }}" data-available="{{ 'true' if m.available else 'false' }}" data-ui-display-name="{{ model_labels[m.id] }}"
-                               {% if m.id in selected_ids %}checked{% endif %}>
-                        <span class="risk-model-copy">
-                            <span class="risk-model-title"><strong>{{ m.display_name }}</strong>
-                                <span class="risk-availability {% if m.available %}risk-availability-ready{% endif %}">{% if m.available %}可用{% else %}未就绪{% endif %}</span>
-                            </span>
-                            <span class="risk-model-description">{{ m.description }}</span>
-                        </span>
-                    </label>
-                    {% else %}
-                    <p class="risk-empty-models">尚未配置可用模型。</p>
-                    {% endfor %}
+                    <div class="risk-model {% if not m.available %}risk-model-unavailable{% endif %}"><label class="risk-model-choice">
+                        <input type="checkbox" name="models" value="{{ m.id }}" data-available="{{ 'true' if m.available else 'false' }}" data-ui-display-name="{{ model_labels[m.id] }}" {% if m.id in selected_ids %}checked{% endif %}>
+                        {{ model_mark(m.id, loop.index) }}
+                        <span class="risk-model-copy"><span class="risk-model-title"><strong>{{ m | model_label(loop.index) }}</strong><span class="risk-availability {% if m.available %}risk-availability-ready{% endif %}">{{ '可用' if m.available else '未就绪' }}</span></span><span class="risk-model-description">{{ m.description }}</span></span>
+                    </label></div>
+                    {% else %}<p class="risk-empty-models">暂无可用的分析模型，模型服务连接后会显示在这里。</p>{% endfor %}
                 </div>
-                <p id="risk-selection-help" class="risk-selection-help" aria-live="polite">{% if mode == 'single' %}请选择 1 个可用模型。{% else %}请选择 2–3 个模型，至少一个可用。优先按多数票判断，无多数时使用有效分数的均值。{% endif %}</p>
+                <p id="risk-selection-help" class="risk-selection-help" aria-live="polite">{% if mode == 'single' %}请选择 1 个可用模型。{% else %}选择 2–3 个模型，至少一个可用；优先多数票，无多数时使用有效分数均值。{% endif %}</p>
             </fieldset>
-
-            {% if available_models | length < models | length or not models %}
-            <details class="risk-setup" {% if not available_models %}open{% endif %}>
-                <summary>{% if not available_models %}模型尚未就绪{% else %}部分模型未就绪{% endif %} · 查看准备步骤</summary>
-                <p>安装并启动 Ollama，安装 Python 的 ollama 依赖，下载需要的 Qwen、DeepSeek 或 GLM 模型权重，然后重启网站以重新检查模型状态。</p>
-                <p>未就绪模型保留在名单中但不计入平均分。全部模型未就绪时无法检测。具体模型版本与安装命令见项目 README。</p>
-            </details>
-            {% endif %}
-
-            <button type="submit" class="risk-submit" {% if not available_models %}disabled{% endif %}>
-                <span>开始检测</span><span aria-hidden="true">→</span>
-            </button>
-            <p class="risk-runtime-note">本机模型依次运行，每个模型返回后即时更新进度，完整报告自动保存。</p>
-            <noscript><p class="risk-help">提交后请等待页面返回；单模型模式请选择一个模型，投票模式请选择两个或三个模型。</p></noscript>
+            {% if not available_models %}<p class="risk-help">模型服务尚未就绪。请启动服务，再刷新页面检查连接。</p>{% elif available_models | length < models | length %}<p class="risk-help">未就绪模型会保留在名单中，仅成功返回的评分参与结果计算。</p>{% endif %}
+            <button type="submit" class="risk-submit" {% if not available_models %}disabled{% endif %}><span>开始检测</span><span aria-hidden="true">↗</span></button>
+            <p class="risk-runtime-note"><span aria-hidden="true">◷</span> 模型依次分析并更新进度，完整报告自动保存。</p>
+            <noscript><p class="risk-help">提交后请等待页面返回。单模型选择一个模型；投票选择两个或三个模型。</p></noscript>
         </div>
     </form>
-
-    <div id="detect-result-box" class="risk-result-box" aria-live="polite" aria-busy="false">
-        {% include "_detect_result.html" %}
-    </div>
+    <div class="workspace-section-title"><span class="section-number">02</span><h2>进度与结果</h2><span class="section-line"></span><span>模型判断 · 聚合报告</span></div>
+    <div id="detect-result-box" class="risk-result-box" aria-live="polite" aria-busy="false">{% include "_detect_result.html" %}</div>
 </div>
 {% endblock %}
-
-{% block scripts %}
-<script src="{{ url_for('static', filename='js/detect.js') }}"></script>
-<script src="{{ url_for('static', filename='js/report.js') }}" defer></script>
-{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/detect.js') }}"></script>{% endblock %}

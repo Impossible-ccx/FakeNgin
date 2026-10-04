@@ -185,7 +185,6 @@ def _aggregate_result(members, selected, mode, started):
         warning = "{}结果为{}。".format(
             "多数投票" if decision_method == "majority" else "单模型检测", _LEVEL_LABELS[level],
         )
-    warning += "语言风险不代表事实真假，模型一致也不等于事实已被核实。"
 
     return {
         "mode": mode,
