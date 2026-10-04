@@ -118,8 +118,11 @@ class FileStorageTests(unittest.TestCase):
     def test_cache_is_bounded_and_atomic_write_failure_keeps_original(self):
         with patch.object(file_store, "MAX_CACHED_FILES", 3):
             for index in range(7):
-                file_store.write_json(self.directory / (str(index) + ".json"), {"value": index})
+                cached_path = self.directory / (str(index) + ".json")
+                file_store.write_json(cached_path, {"value": index})
+                self.assertEqual(file_store.read_json(cached_path), {"value": index})
             self.assertLessEqual(len(file_store._cache), 3)
+            self.assertEqual(len(file_store._cache), 3)
         path = self.directory / "atomic.json"
         file_store.write_json(path, {"value": "original"})
         with patch.object(file_store.os, "replace", side_effect=OSError("disk failure")):

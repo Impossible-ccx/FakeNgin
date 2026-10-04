@@ -1,7 +1,7 @@
 # FakeNgin 可选依赖：按需安装，未安装时对应模型会自动隐藏，不影响其他功能。
 
-# Ollama 系模型（还需安装 Ollama 本体并 ollama pull 对应模型）
-ollama
+# Ollama 的轻量 Python 客户端已包含在 requirements.txt；
+# 本地服务程序和模型权重仍需按需自行准备，启动器不会安装或下载。
 
 # 中文 RoBERTa 谣言分类器（pip 安装的 torch 在 Windows 上默认即 CPU 版）
 torch
