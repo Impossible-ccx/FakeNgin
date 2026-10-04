@@ -1,9 +1,10 @@
-"""离线把旧风险 SQLite 文件迁移为 JSON；必须先停止网站，旧文件不删除。
+"""离线把旧风险 JSON/SQLite 文件迁移为 CSV；必须先停止网站，旧文件不删除。
 
 先检查：python scripts/migrate_risk_storage.py --dry-run
 再迁移：python scripts/migrate_risk_storage.py
 指定目录：python scripts/migrate_risk_storage.py --database-dir /path/to/database
-可重复执行；已存在的 JSON 一律保留，不覆盖后续检测结果或任务状态。
+可重复执行；已存在的 CSV 一律保留，不覆盖后续检测结果或任务状态。
+同时存在旧 JSON 和 SQLite 时，优先迁移较新的 JSON 存储。
 """
 
 import argparse
@@ -46,6 +47,10 @@ def _job(row):
     job = json.loads(row["payload_json"])
     job.update(id=row["id"], created_at=row["created_at"], status=row["status"],
                updated_at=row["updated_at"], cancel_requested=bool(row["cancel_requested"]))
+    return _interrupt_job(job)
+
+
+def _interrupt_job(job):
     if job["status"] in ("queued", "running", "cancelling"):
         # 迁移无法判断最后一次模型调用是否完成，明确中断并保留已完成结果。
         job.update(status="interrupted", current_index=None,
@@ -68,8 +73,22 @@ def _reference(row):
     }
 
 
+def _legacy_json_records(directory):
+    """只用于显式离线迁移；网页运行期间不会读取旧 JSON。"""
+    if not directory.exists():
+        return
+    for path in sorted(directory.glob("*.json")):
+        if path.is_symlink():
+            continue
+        with path.open("r", encoding="utf-8") as stream:
+            record = json.load(stream)
+        if not isinstance(record, dict):
+            raise ValueError("Legacy record must be an object: " + path.name)
+        yield record
+
+
 def migrate_storage(directory, *, dry_run=False):
-    """返回分类计数；不调用模型、不加载密钥、不改 CSV 和旧 SQLite。"""
+    """返回分类计数；不调用模型，不改旧 JSON/SQLite 或已有 CSV。"""
     directory = Path(directory).resolve()
     result = {name: {"found": 0, "copied": 0, "skipped": 0} for name in ("reports", "batches", "references")}
     sources = (
@@ -77,30 +96,43 @@ def migrate_storage(directory, *, dry_run=False):
         ("batches", "risk_batches.sqlite3", "risk_batches", "risk_batches", _job),
         ("references", "risk_batches.sqlite3", "dataset_reports", "dataset_reports", _reference),
     )
+    planned_paths = set()
     for category, source_name, table, target_name, decode in sources:
-        for row in _legacy_rows(directory / source_name, table):
-            record = decode(row)
-            target = directory / target_name
-            if category == "references":
-                # 校验报告 ID，导出的链接不能包含任意路径。
-                file_store.uuid_path(directory / "risk_reports", record["id"])
-                path = file_store.key_path(target, [record["file"], record["row"], record["signature"]])
-            else:
-                path = file_store.uuid_path(target, record["id"])
-            counts = result[category]
-            counts["found"] += 1
-            copied = not path.exists() if dry_run else file_store.write_json(path, record, overwrite=False)
-            counts["copied" if copied else "skipped"] += 1
+        old_json = _legacy_json_records(directory / target_name)
+        old_sqlite = (decode(row) for row in _legacy_rows(directory / source_name, table))
+        for records in (old_json, old_sqlite):
+            for record in records:
+                if category == "batches":
+                    record = _interrupt_job(record)
+                target = directory / target_name
+                if category == "references":
+                    # 校验报告 ID，导出的链接不能包含任意路径。
+                    file_store.uuid_path(directory / "risk_reports", record["id"])
+                    path = file_store.key_path(target, [record["file"], record["row"], record["signature"]])
+                else:
+                    path = file_store.uuid_path(target, record["id"])
+                counts = result[category]
+                counts["found"] += 1
+                if path in planned_paths:
+                    copied = False
+                elif dry_run:
+                    copied = not path.exists()
+                else:
+                    copied = file_store.write_csv(path, record, overwrite=False)
+                planned_paths.add(path)
+                counts["copied" if copied else "skipped"] += 1
     return result
 
 
 def main():
-    parser = argparse.ArgumentParser(description="离线迁移风险报告和批量任务，保留旧 SQLite 备份")
+    parser = argparse.ArgumentParser(description="离线迁移风险报告和批量任务为 CSV，保留旧 JSON/SQLite 备份")
     parser.add_argument("--database-dir", type=Path, default=PROJECT_ROOT / "database")
-    parser.add_argument("--dry-run", action="store_true", help="只报告将迁移/保留的记录数量，不写 JSON")
+    parser.add_argument("--dry-run", action="store_true", help="只报告将迁移/保留的记录数量，不写 CSV")
     options = parser.parse_args()
     result = migrate_storage(options.database_dir, dry_run=options.dry_run)
-    print(json.dumps({"dry_run": options.dry_run, **result}, ensure_ascii=False, indent=2))
+    print("只读预览" if options.dry_run else "CSV 迁移完成")
+    for category, counts in result.items():
+        print("{}: found={}, copied={}, skipped={}".format(category, counts["found"], counts["copied"], counts["skipped"]))
 
 
 if __name__ == "__main__":

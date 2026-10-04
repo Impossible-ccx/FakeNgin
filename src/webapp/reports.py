@@ -1,4 +1,4 @@
-"""独立 JSON 文件保存完整风险报告，不修改原有 CSV 数据和真假标签。"""
+"""独立 CSV 文件保存完整风险报告，不修改原有 CSV 数据和真假标签。"""
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,9 +24,9 @@ def save_report(message, model_ids, result, prompt_version=PROMPT_VERSION):
         "prompt_version": prompt_version,
     }
     path = file_store.uuid_path(_directory(), record["id"])
-    if not file_store.write_json(path, record, overwrite=False):
+    if not file_store.write_csv(path, record, overwrite=False):
         raise RuntimeError("Report identifier already exists")
-    return file_store.read_json(path)
+    return file_store.read_csv(path)
 
 
 def get_report(report_id):
@@ -35,7 +35,7 @@ def get_report(report_id):
         path = file_store.uuid_path(_directory(), report_id)
     except ValueError:
         return None
-    return file_store.read_json(path)
+    return file_store.read_csv(path)
 
 
 def list_reports(page=1, page_size=20, query=""):

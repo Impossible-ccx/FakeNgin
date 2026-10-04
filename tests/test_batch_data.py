@@ -1,5 +1,6 @@
 """Dataset import and persisted batch-job integration tests; no real inference."""
 
+import csv
 import io
 import json
 from pathlib import Path
@@ -382,8 +383,13 @@ class BatchDataTests(unittest.TestCase):
         self.assertEqual(raw["display_name"], helpers.RISK_MODELS[2]["display_name"])
         self.assertNotIn("ui_display_name", raw)
         self.assertEqual(stored["result"], item["result"])
-        exported = self.client.get(item["history_url"] + "/export?format=json").get_json()
-        self.assertEqual(exported["result"], item["result"])
+        data = self.client.get(item["history_url"] + "/export?format=csv").data.decode("utf-8-sig")
+        exported = list(csv.DictReader(io.StringIO(data)))
+        self.assertEqual(len(exported), 1)
+        self.assertEqual(exported[0]["model_id"], raw["id"])
+        self.assertEqual(exported[0]["model_name"], raw["display_name"])
+        self.assertEqual(float(exported[0]["score"]), raw["score"])
+        self.assertEqual(exported[0]["reason"], raw["reason"])
 
     def test_search_links_completed_batch_report_only_while_original_content_matches(self):
         refs = self.seed_rows(["可检索原文", "其他不相关消息"])

@@ -1,8 +1,7 @@
-"""已完成检测报告的浏览、详情与 JSON / CSV / 文本导出。"""
+"""已完成检测报告的浏览、详情与 CSV / 文本导出。"""
 
 import csv
 import io
-import json
 
 from flask import Response, abort, current_app, render_template, request
 
@@ -150,11 +149,8 @@ def _text_export(record):
 @main.route("/history/<report_id>/export")
 def export_report(report_id):
     record = _find_report(report_id)
-    export_format = request.args.get("format", "json").lower()
-    if export_format == "json":
-        content = json.dumps(record, ensure_ascii=False, allow_nan=False, indent=2)
-        content_type = "application/json; charset=utf-8"
-    elif export_format == "csv":
+    export_format = request.args.get("format", "csv").lower()
+    if export_format == "csv":
         content = _csv_export(record)
         content_type = "text/csv; charset=utf-8"
     elif export_format == "txt":

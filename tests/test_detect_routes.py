@@ -90,7 +90,13 @@ class DetectRouteTests(unittest.TestCase):
         return self.model_instances[model_id]
 
     def database_snapshot(self):
-        return {str(path.relative_to(self.database_dir)): path.read_bytes() for path in self.database_dir.rglob("*.csv")}
+        # Saved reports/tasks are additional CSV files; inference must leave source data unchanged.
+        history_directories = {"risk_reports", "risk_batches", "dataset_reports"}
+        return {
+            str(path.relative_to(self.database_dir)): path.read_bytes()
+            for path in self.database_dir.rglob("*.csv")
+            if path.relative_to(self.database_dir).parts[0] not in history_directories
+        }
 
     def configure_scores(self, scores):
         for model_id, score in zip(RISK_IDS, scores):

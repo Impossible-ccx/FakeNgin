@@ -64,9 +64,6 @@ class HistoryRouteTests(unittest.TestCase):
         _, context = self.submit(message="=HYPERLINK(\"x\") 中文")
         record = context["record"]
         path = "/history/" + record["id"] + "/export"
-        raw = self.client.get(path + "?format=json").get_json()
-        self.assertEqual(raw["result"], record["result"])
-        self.assertEqual(raw["message"], record["message"])
         text = self.client.get(path + "?format=txt").get_data(as_text=True)
         self.assertIn("中文", text)
         self.assertIn("分析模型 1", text)
@@ -74,6 +71,17 @@ class HistoryRouteTests(unittest.TestCase):
         rows = list(csv.reader(io.StringIO(data)))
         self.assertEqual(len(rows), 4)
         self.assertTrue(any(cell.startswith("'=HYPERLINK") for cell in rows[1]))
+        exported = list(csv.DictReader(io.StringIO(data)))
+        self.assertEqual(exported[0]["report_id"], record["id"])
+        exported_mean = float(exported[0]["mean_score"]) if exported[0]["mean_score"] else None
+        self.assertEqual(exported_mean, record["result"]["mean_score"])
+        self.assertEqual([float(row["score"]) for row in exported],
+                         [member["score"] for member in record["result"]["members"]])
+        self.assertEqual(self.client.get(path).data, self.client.get(path + "?format=csv").data)
+        self.assertEqual(self.client.get(path + "?format=json").status_code, 400)
+        html = self.client.get("/history/" + record["id"]).get_data(as_text=True)
+        self.assertNotIn("format=json", html)
+        self.assertIn("format=csv", html)
         self.assertEqual(self.client.get(path + "?format=invalid").status_code, 400)
         self.assertEqual(self.client.get("/history/not-found").status_code, 404)
 

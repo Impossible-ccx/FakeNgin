@@ -4,7 +4,7 @@
     <div class="report-saved"><span class="saved-dot" aria-hidden="true"></span><span>完整报告已保存</span><time datetime="{{ record.created_at }}" data-local-time>{{ record.created_at }}</time></div>
     <div class="report-actions" aria-label="检测报告操作">
         <button class="dash-button dash-button-small" type="button" data-copy-report="{{ url_for('main.export_report',report_id=record.id,format='txt') }}">复制报告</button>
-        {% for format in ['txt','json','csv'] %}<a class="export-link" href="{{ url_for('main.export_report',report_id=record.id,format=format) }}" aria-label="下载 {{ format | upper }} 报告">{{ format | upper }} <span aria-hidden="true">↓</span></a>{% endfor %}
+        {% for format in ['csv','txt'] %}<a class="export-link" href="{{ url_for('main.export_report',report_id=record.id,format=format) }}" aria-label="下载 {{ format | upper }} 报告">{{ format | upper }} <span aria-hidden="true">↓</span></a>{% endfor %}
         <span class="report-copy-status" data-copy-status role="status"></span>
     </div>
     {% if not report_view %}<a class="report-permalink" href="{{ url_for('main.report',report_id=record.id) }}">查看完整报告与原文 <span aria-hidden="true">↗</span></a>{% endif %}

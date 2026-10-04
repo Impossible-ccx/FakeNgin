@@ -1,4 +1,4 @@
-"""JSON 文件持久化批任务：逐条、逐模型执行，重启不重复调用。"""
+"""CSV 文件持久化批任务：逐条、逐模型执行，重启不重复调用。"""
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,7 +37,7 @@ def get_batch(job_id, directory=None):
         path = file_store.uuid_path(_job_directory(directory), job_id)
     except ValueError:
         return None
-    return file_store.read_json(path)
+    return file_store.read_csv(path)
 
 
 def list_batches(limit=5):
@@ -58,7 +58,7 @@ def _save_job(job, directory=None):
     _counts(job)
     path = file_store.uuid_path(_job_directory(directory), job["id"])
     with file_store.locked(path.parent):
-        current = file_store.read_json(path)
+        current = file_store.read_csv(path)
         if current is None:
             raise ValueError("Unknown batch job")
         # 取消标记只能从 False 变为 True；旧 worker 快照不能覆盖它。
@@ -70,7 +70,7 @@ def _save_job(job, directory=None):
         if job["cancel_requested"] and job["status"] in ("queued", "running"):
             job["status"] = "cancelling"
         job["updated_at"] = _now()
-        file_store.write_json(path, job)
+        file_store.write_csv(path, job)
 
 
 def initialize():
@@ -97,7 +97,7 @@ def initialize():
                             if member.get("status") == "running":
                                 member["status"] = "interrupted"
                 job["updated_at"] = _now()
-                file_store.write_json(file_store.uuid_path(_job_directory(directory), job["id"]), job)
+                file_store.write_csv(file_store.uuid_path(_job_directory(directory), job["id"]), job)
         _initialized_paths.add(directory)
 
 
@@ -126,7 +126,7 @@ def create_batch(rows, model_ids, mode="vote", deepseek_source="local"):
         })
     with _lock:
         path = file_store.uuid_path(_job_directory(), job["id"])
-        if not file_store.write_json(path, job, overwrite=False):
+        if not file_store.write_csv(path, job, overwrite=False):
             raise RuntimeError("Batch identifier already exists")
     try:
         _start_worker()
@@ -148,7 +148,7 @@ def cancel_batch(job_id):
     except ValueError:
         return None
     with file_store.locked(path.parent):
-        job = file_store.read_json(path)
+        job = file_store.read_csv(path)
         if job is None:
             return None
         if job["status"] in ACTIVE_STATUSES:
@@ -159,7 +159,7 @@ def cancel_batch(job_id):
             else:
                 job["status"] = "cancelling"
             job.update(cancel_requested=True, updated_at=_now())
-            file_store.write_json(path, job)
+            file_store.write_csv(path, job)
     return get_batch(job_id)
 
 
@@ -181,9 +181,9 @@ def _link_report(item, record, directory):
                 created_at=record["created_at"])
     path = _reference_path(item, directory)
     with file_store.locked(path.parent):
-        previous = file_store.read_json(path)
+        previous = file_store.read_csv(path)
         if previous is None or (record["created_at"], record["id"]) >= (previous["created_at"], previous["id"]):
-            file_store.write_json(path, link)
+            file_store.write_csv(path, link)
 
 
 def latest_reports(references):
@@ -191,7 +191,7 @@ def latest_reports(references):
     found = {}
     for reference in references:
         key = (reference["file"], reference["row"], reference["signature"])
-        link = file_store.read_json(_reference_path(reference))
+        link = file_store.read_csv(_reference_path(reference))
         if link is not None:
             found[key] = {name: link[name] for name in ("id", "history_url", "label", "level", "created_at")}
     return found
@@ -206,7 +206,7 @@ def run_batch(job_id, directory=None):
             if job is None or job["status"] != "queued":
                 return
             job.update(status="running", updated_at=_now())
-            file_store.write_json(file_store.uuid_path(_job_directory(directory), job_id), job)
+            file_store.write_csv(file_store.uuid_path(_job_directory(directory), job_id), job)
     return _run_batch(job_id, directory)
 
 
