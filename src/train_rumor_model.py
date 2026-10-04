@@ -77,12 +77,13 @@ class RumorDataset(Dataset):
         return item
 
 
-def evaluate(model, loader):
+def evaluate(model, loader, device):  # 新增 device 参数
     model.eval()
     correct = 0
     total = 0
     with torch.no_grad():
         for batch in loader:
+            batch = {k: v.to(device) for k, v in batch.items()}  # 新增：搬到 GPU
             logits = model(
                 input_ids=batch["input_ids"],
                 attention_mask=batch["attention_mask"],
@@ -96,6 +97,11 @@ def evaluate(model, loader):
 def main():
     random.seed(SEED)
     torch.manual_seed(SEED)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(SEED)  # 新增：设置所有 GPU 的随机种子
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # 新增
+    print("使用设备：{}".format(device))  # 新增
 
     data = load_rumor_dataset()
     rumor_count = int(data["label"].sum())
@@ -111,15 +117,19 @@ def main():
     print("加载基座模型 {} ...".format(BASE_MODEL))
     tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
     model = AutoModelForSequenceClassification.from_pretrained(BASE_MODEL, num_labels=2)
+    model.to(device)  # 新增：模型搬到 GPU
+    print("模型参数所在设备：{}".format(next(model.parameters()).device))  # 新增：确认设备
 
     train_loader = DataLoader(
         RumorDataset(train_data["content"], train_data["label"], tokenizer),
         batch_size=BATCH_SIZE,
         shuffle=True,
+        pin_memory=torch.cuda.is_available(),  # 新增：加速主机到显存拷贝
     )
     val_loader = DataLoader(
         RumorDataset(val_data["content"], val_data["label"], tokenizer),
         batch_size=BATCH_SIZE,
+        pin_memory=torch.cuda.is_available(),  # 新增
     )
 
     optimizer = torch.optim.AdamW(
@@ -136,6 +146,7 @@ def main():
         model.train()
         running_loss = 0.0
         for step, batch in enumerate(train_loader, 1):
+            batch = {k: v.to(device) for k, v in batch.items()}  # 新增：搬到 GPU
             optimizer.zero_grad()
             output = model(**batch)
             output.loss.backward()
@@ -147,7 +158,7 @@ def main():
                 print("  epoch {} step {}/{} loss {:.4f}".format(
                     epoch, step, len(train_loader), running_loss / step))
 
-        accuracy = evaluate(model, val_loader)
+        accuracy = evaluate(model, val_loader, device)  # 新增：传入 device
         print("epoch {} 完成：验证准确率 {:.4f}".format(epoch, accuracy))
         if accuracy >= best_accuracy:
             best_accuracy = accuracy
@@ -160,6 +171,8 @@ def main():
         "val_accuracy": round(best_accuracy, 4),
         "label_meaning": {"0": "非谣言", "1": "谣言"},
         "trained_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "device": str(device),  # 新增：记录训练设备
+        "gpu_name": torch.cuda.get_device_name(0) if device.type == "cuda" else None,  # 新增
     }
     (OUTPUT_DIR / "train_meta.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
