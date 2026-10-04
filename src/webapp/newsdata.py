@@ -132,6 +132,13 @@ def search_messages(query, limit=3):
     return search(query, limit)
 
 
+def hot_terms(limit=20):
+    """返回数据库热点词汇排行（转发到 bm25 模块，共享搜索索引缓存）。"""
+    from .bm25 import hot_terms as _hot_terms
+
+    return _hot_terms(limit)
+
+
 # ------------------------------------------------------------------ 写入
 
 def append_message(data):

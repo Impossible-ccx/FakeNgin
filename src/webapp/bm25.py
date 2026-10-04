@@ -11,8 +11,10 @@ import hashlib
 import math
 import shutil
 from collections import defaultdict
+from pathlib import Path
 
 import jieba
+import jieba.posseg
 import pandas as pd
 
 from . import newsdata
@@ -23,6 +25,21 @@ SEARCH_INDEX_DIR = DATABASE_DIR / "searchindex"
 INDEX_VERSION = 1
 BM25_K1 = 1.5
 BM25_B = 0.75
+
+# 热点词汇默认参数
+HOT_TERM_LIMIT = 20
+HOT_MIN_DF = 2
+HOT_MAX_DF_RATIO = 0.9
+HOT_MIN_LENGTH = 2
+
+# 热点词汇停用词表与实词词性白名单
+STOP_WORDS_FILE = Path(__file__).with_name("stopwords_zh.txt")
+HOT_ALLOW_POS = frozenset({
+    "n", "nr", "ns", "nt", "nz", "nl", "ng",
+    "v", "vd", "vn", "vg",
+    "a", "ad", "an", "ag",
+    "i", "j", "l", "s",
+})
 
 GLOBAL_META_FILE = SEARCH_INDEX_DIR / "meta.csv"
 GLOBAL_TERMS_FILE = SEARCH_INDEX_DIR / "terms.csv"
@@ -42,6 +59,8 @@ POSTING_COLUMNS = ["doc_id", "term", "tf"]
 DOC_LENGTH_COLUMNS = ["doc_id", "length"]
 TERM_COLUMNS = ["term", "df"]
 
+_hot_cache = {"key": None, "value": []}
+
 
 # ------------------------------------------------------------ csv 读写
 
@@ -53,6 +72,40 @@ def _as_int(value, default=0):
         return int(float(value))
     except (TypeError, ValueError):
         return default
+
+
+def _load_stop_words():
+    """从 stopwords_zh.txt 读取停用词，统一小写。文件缺失时降级为空集。"""
+    words = set()
+    try:
+        text = STOP_WORDS_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return frozenset(words)
+    for line in text.splitlines():
+        token = line.strip().lower()
+        if token and not token.startswith("#"):
+            words.add(token)
+    return frozenset(words)
+
+
+STOP_WORDS = _load_stop_words()
+_term_pos_cache = {}
+
+
+def _term_pos(term):
+    """返回词条的首个词性标注，结果缓存，避免重复打标。"""
+    cached = _term_pos_cache.get(term)
+    if cached is not None:
+        return cached
+    flag = ""
+    try:
+        for _word, tag in jieba.posseg.cut(term):
+            flag = tag
+            break
+    except Exception:
+        flag = ""
+    _term_pos_cache[term] = flag
+    return flag
 
 
 # --------------------------------------------------------------- 分词
@@ -220,11 +273,8 @@ def _refresh_global_terms(names):
 
 # --------------------------------------------------------------- 搜索
 
-def search(query, limit=3):
-    tokens = _tokenize(query)
-    if not tokens or limit <= 0:
-        return []
-
+def _ensure_index():
+    """构建/增量刷新搜索索引，返回 (表名列表, 全局 meta)。"""
     names = newsdata.list_tables()
     SEARCH_INDEX_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -255,6 +305,15 @@ def search(query, limit=3):
     if needs_global_refresh or global_meta is None:
         _refresh_global_terms(names)
         global_meta = _read_global_meta()
+    return names, global_meta
+
+
+def search(query, limit=3):
+    tokens = _tokenize(query)
+    if not tokens or limit <= 0:
+        return []
+
+    names, global_meta = _ensure_index()
     if global_meta is None:
         return []
 
@@ -330,3 +389,81 @@ def search(query, limit=3):
         record["_signature"] = newsdata.signature(row)
         results.append(record)
     return results
+
+
+# ----------------------------------------------------------- 热点词汇
+
+def term_hot_score(df, idf):
+    """热点分数：文档频率 df 与 idf 的乘积。
+
+    idf 本身已对高 df 词做了饱和/抑制，因此不再单独做饱和。
+    单独的评分函数，后续更换热点指标只需修改这里。
+    """
+    try:
+        df = float(df)
+        idf = float(idf)
+    except (TypeError, ValueError):
+        return 0.0
+    if df <= 0:
+        return 0.0
+    return idf * df
+
+
+def hot_terms(limit=HOT_TERM_LIMIT, min_df=HOT_MIN_DF,
+              max_df_ratio=HOT_MAX_DF_RATIO, min_length=HOT_MIN_LENGTH,
+              use_pos=True):
+    """返回热点词汇排行，共享 BM25 搜索的索引缓存。
+
+    过滤规则：词长 >= min_length；不在停用词表；df >= min_df；
+    df < max_df_ratio * doc_count；use_pos 时词性须为 HOT_ALLOW_POS 中的实词。
+    """
+    _names, global_meta = _ensure_index()
+    if global_meta is None:
+        return []
+    doc_count = _as_int(global_meta.get("doc_count"))
+    if doc_count <= 0:
+        return []
+
+    cache_key = (
+        str(global_meta.get("updated_at")),
+        limit, min_df, max_df_ratio, min_length, doc_count, bool(use_pos),
+    )
+    if _hot_cache["key"] == cache_key:
+        return _hot_cache["value"]
+
+    terms = _load_global_terms()
+    if terms.empty:
+        _hot_cache["key"], _hot_cache["value"] = cache_key, []
+        return []
+
+    max_df = max_df_ratio * doc_count
+    ranked = []
+    for _, row in terms.iterrows():
+        term = str(row.get("term", ""))
+        if len(term) < min_length or term in STOP_WORDS:
+            continue
+        df = _as_int(row.get("df"))
+        if df < min_df or df >= max_df:
+            continue
+        pos = _term_pos(term) if use_pos else ""
+        if use_pos and pos not in HOT_ALLOW_POS:
+            continue
+        try:
+            idf = float(row.get("idf"))
+        except (TypeError, ValueError):
+            continue
+        score = term_hot_score(df, idf)
+        if score <= 0:
+            continue
+        ranked.append({
+            "term": term,
+            "score": score,
+            "df": df,
+            "idf": idf,
+            "pos": pos,
+        })
+
+    ranked.sort(key=lambda item: (-item["score"], item["term"]))
+    ranked = ranked[:limit]
+    _hot_cache["key"], _hot_cache["value"] = cache_key, ranked
+    return ranked

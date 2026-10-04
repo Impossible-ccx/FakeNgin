@@ -30,6 +30,7 @@ def data():
         rows=rows,
         query=query,
         search_results=search_results,
+        hot_words=newsdata.hot_terms(),
         page=page,
         total=total,
         total_pages=total_pages,

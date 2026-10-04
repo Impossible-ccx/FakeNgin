@@ -813,6 +813,46 @@ a {
     text-align: center;
 }
 
+/* ------------------------------------------------------- hot words */
+.hot-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 10px;
+}
+
+.hot-word {
+    display: inline-flex;
+    align-items: baseline;
+    padding: 7px 13px;
+    border: 1px solid #dbe7ee;
+    border-radius: 9px;
+    background: #f5fafb;
+    color: #356c75;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.hot-word:hover {
+    border-color: #9fc8c9;
+    background: #ebf6f6;
+    color: #245457;
+}
+
+.hot-weight-1 { font-size: 13px; }
+.hot-weight-2 { font-size: 15px; }
+.hot-weight-3 { font-size: 18px; }
+.hot-weight-4 { font-size: 22px; }
+.hot-weight-5 { font-size: 26px; font-weight: 600; color: #245457; }
+
+.hot-empty {
+    margin: 0;
+    padding: 12px 0;
+    color: var(--muted);
+    font-size: 13px;
+}
+
 .table-wrap {
     overflow-x: auto;
     border: 1px solid var(--line);

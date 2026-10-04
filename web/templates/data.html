@@ -67,6 +67,26 @@
         <div class="dash-hero-aside"><span>数据集规模</span><strong>{{ total }}</strong><span>条消息</span></div>
     </header>
 
+    <section class="panel hot-panel">
+        <div class="panel-head">
+            <h2>热点词汇</h2>
+            <span class="panel-meta">按词频与信息量综合排序 · 点击发起搜索</span>
+        </div>
+        {% if hot_words %}
+        {% set max_score = hot_words[0].score %}
+        <div class="hot-cloud">
+            {% for w in hot_words %}
+            {% set ratio = (w.score / max_score) if max_score else 0 %}
+            {% set weight = 5 if ratio >= 0.8 else (4 if ratio >= 0.6 else (3 if ratio >= 0.4 else (2 if ratio >= 0.2 else 1))) %}
+            <a class="hot-word hot-weight-{{ weight }}" href="{{ url_for('main.data', q=w.term) }}"
+               title="热度 {{ '%.1f' | format(w.score) }} · 出现于 {{ w.df }} 条消息">{{ w.term }}</a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="hot-empty">暂无热点词汇。</p>
+        {% endif %}
+    </section>
+
     <section class="panel">
         <div class="panel-head">
             <h2>消息搜索</h2>
