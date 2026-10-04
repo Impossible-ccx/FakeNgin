@@ -326,6 +326,86 @@ class SharedOllamaProbeTests(unittest.TestCase):
         self.assertTrue(Ollama_DeepSeek().refresh_detection(requested_at))
         self.assertEqual(self.client.list.call_count, 2)
 
+    def test_custom_client_probe_preserves_host_auth_and_inference_timeout(self):
+        class AuthenticatedAdapter(Ollama_Qwen25):
+            model_name = "custom-risk:7b"
+            timeout = 77
+
+            def _client(self, sdk):
+                return sdk.Client(host="http://custom-service.test:11434", timeout=self.timeout,
+                                  headers={"Authorization": "test-token"})
+
+        custom_client = Mock()
+        custom_client.list.return_value = {"models": [{"model": "custom-risk:7b"}]}
+        self.ollama.Client.side_effect = lambda **kwargs: custom_client if "host" in kwargs else self.client
+        self.assertTrue(Ollama_Qwen25().detect())
+        adapter = AuthenticatedAdapter()
+        self.assertTrue(adapter.detect())
+        self.assertTrue(adapter.detect())
+        self.ollama.Client.assert_called_with(host="http://custom-service.test:11434", timeout=77,
+                                             headers={"Authorization": "test-token"})
+        custom_client.list.assert_called_once_with()
+        self.client.list.assert_called_once_with()
+        self.assertEqual(adapter.timeout, 77)
+        adapter._client(self.ollama)
+        self.assertEqual(self.ollama.Client.call_args.kwargs["timeout"], 77)
+
+    def test_custom_clients_have_separate_caches_and_recover_by_ttl_or_refresh(self):
+        class EndpointAdapter(Ollama_Qwen25):
+            def __init__(self, host):
+                self.host = host
+
+            def _client(self, sdk):
+                return sdk.Client(host=self.host, timeout=self.timeout)
+
+        left_client, right_client = Mock(), Mock()
+        left_client.list.return_value = {"models": [{"model": "qwen2.5:7b"}]}
+        right_client.list.side_effect = RuntimeError("isolated offline test service")
+        clients = {"http://left.test:11434": left_client, "http://right.test:11434": right_client}
+        self.ollama.Client.side_effect = lambda **kwargs: clients[kwargs["host"]] if "host" in kwargs else self.client
+        left, right = EndpointAdapter("http://left.test:11434"), EndpointAdapter("http://right.test:11434")
+        self.assertTrue(left.detect())
+        self.assertFalse(right.detect())
+        right_client.list.side_effect = None
+        right_client.list.return_value = {"models": [{"model": "qwen2.5:7b"}]}
+        self.assertFalse(right.detect())
+        self.assertTrue(left.detect())
+        self.assertTrue(Ollama_DeepSeek().detect())
+        self.assertEqual((left_client.list.call_count, right_client.list.call_count, self.client.list.call_count), (1, 1, 1))
+        self.now[0] += ollama_base.PROBE_CACHE_SECONDS + 0.1
+        self.assertTrue(right.detect())
+        right_client.list.return_value = {"models": []}
+        self.now[0] += 0.1
+        self.assertFalse(right.refresh_detection(self.now[0]))
+        self.assertTrue(left.detect())
+        self.assertEqual(right_client.list.call_count, 3)
+
+    def test_concurrent_custom_client_probes_share_only_that_adapter_result(self):
+        class CustomAdapter(Ollama_Qwen25):
+            def _client(self, sdk):
+                return sdk.Client(host="http://custom-service.test:11434", timeout=self.timeout)
+
+        entered, release = Event(), Event()
+
+        def list_models():
+            entered.set()
+            if not release.wait(3):
+                raise RuntimeError("test synchronization timeout")
+            return {"models": [{"model": "qwen2.5:7b"}]}
+
+        self.client.list.side_effect = list_models
+        adapter = CustomAdapter()
+        with ThreadPoolExecutor(max_workers=6) as workers:
+            first = workers.submit(adapter.detect)
+            try:
+                self.assertTrue(entered.wait(3))
+                others = [workers.submit(adapter.detect) for _ in range(5)]
+            finally:
+                release.set()
+            self.assertTrue(all(future.result(timeout=3) for future in [first] + others))
+        self.client.list.assert_called_once_with()
+        self.ollama.Client.assert_called_once_with(host="http://custom-service.test:11434", timeout=60)
+
 
 if __name__ == "__main__":
     unittest.main()

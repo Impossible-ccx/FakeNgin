@@ -24,6 +24,14 @@ _probe_lock = Lock()
 _probe_names = None
 _probe_checked_at = None
 
+
+class _AdapterProbeCache:
+    def __init__(self):
+        self.lock = Lock()
+        self.names = None
+        self.checked_at = None
+
+
 DEFAULT_SYSTEM_PROMPT = (
     "你是一名信息风险分析助手。只评估消息文本呈现的谣言传播风险，"
     "不把风险评分当作真假结论或统计概率。只输出符合要求的 JSON。"
@@ -72,6 +80,25 @@ class OllamaModel(CheckModel):
         return self.model_name in (self._available_names(requested_at) or ())
 
     def _available_names(self, refresh_started=None):
+        # main 允许适配器覆盖 _client；这类连接必须走自己的工厂，不能
+        # 共用默认服务的名单或丢掉自定义 host/认证。缓存按实例隔离。
+        if getattr(self._client, "__func__", None) is not OllamaModel._client:
+            with _probe_lock:
+                cache = getattr(self, "_adapter_probe_cache", None)
+                if cache is None:
+                    cache = self._adapter_probe_cache = _AdapterProbeCache()
+            with cache.lock:
+                if (cache.checked_at is not None
+                        and monotonic() - cache.checked_at < PROBE_CACHE_SECONDS
+                        and (refresh_started is None or cache.checked_at >= refresh_started)):
+                    return cache.names
+                try:
+                    import ollama
+                    cache.names = tuple(self._installed_models(self._client(ollama)))
+                except Exception:
+                    cache.names = None
+                cache.checked_at = monotonic()
+                return cache.names
         global _probe_names, _probe_checked_at
         with _probe_lock:
             if (_probe_checked_at is not None
