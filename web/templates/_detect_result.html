@@ -4,6 +4,31 @@
     <p>{{ error }}</p>
     <p class="risk-help">输入内容已保留，请检查消息与模型选择后重试。</p>
 </section>
+{% elif result.mode == 'classifier' %}
+<section class="risk-report" data-risk-result aria-labelledby="risk-result-title">
+    <header class="risk-report-heading">
+        <div>
+            <p class="risk-eyebrow">真假分类检测</p>
+            <h2 id="risk-result-title" class="risk-result-title" tabindex="-1">检测结果</h2>
+        </div>
+        <span class="risk-elapsed">总耗时 {{ '%.1f' | format(result.elapsed_seconds) }} 秒</span>
+    </header>
+
+    <div class="detect-result detect-{{ result.level }}">
+        <div class="detect-score">{{ result.percentage }}%</div>
+        <div class="detect-warning">{{ result.warning }}</div>
+    </div>
+
+    {% if result.extra_info %}
+    <p class="risk-member-reason">{{ result.extra_info }}</p>
+    {% endif %}
+
+    <dl class="risk-report-facts">
+        <div><dt>使用模型</dt><dd>{{ result.model_label }}</dd></div>
+        <div><dt>分数含义</dt><dd>虚假概率（非语言风险分）</dd></div>
+    </dl>
+    <p class="risk-report-disclaimer">该分数来自历史标注数据训练的真假分类模型，与风险检测系统的语言风险分含义不同；结果仅供参考。</p>
+</section>
 {% elif result %}
 {% set failed_count = (result.members | selectattr('status', 'equalto', 'error') | list | length) + (result.members | selectattr('status', 'equalto', 'unavailable') | list | length) %}
 {% set abstained_count = result.members | selectattr('status', 'equalto', 'abstained') | list | length %}

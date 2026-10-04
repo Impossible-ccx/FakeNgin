@@ -9,24 +9,6 @@ from .base import CheckError, RiskAbstention
 
 
 MAX_MESSAGE_LENGTH = 6000
-RISK_MODELS = (
-    {
-        "id": "qwen2.5_7b",
-        "display_name": "Qwen2.5-7B (Ollama)",
-        "description": "使用 Qwen2.5-7B 评估消息的语言风险。",
-    },
-    {
-        "id": "deepseek_r1",
-        "display_name": "DeepSeek-R1 (Ollama)",
-        "description": "使用 DeepSeek-R1 评估消息的语言风险。",
-    },
-    {
-        "id": "glm4_9b",
-        "display_name": "GLM-4-9B (Ollama)",
-        "description": "使用 GLM-4-9B 评估消息的语言风险。",
-    },
-)
-_MODEL_BY_ID = {model["id"]: model for model in RISK_MODELS}
 _LEVEL_LABELS = {
     "low": "低风险",
     "medium": "中风险",
@@ -36,15 +18,24 @@ _LEVEL_LABELS = {
 
 
 def get_risk_models():
-    """始终列出三个正式风险模型，并标明当前是否可用。"""
-    available_ids = {model["id"] for model in checkmodel.get_models()}
+    """列出全部登记的风险模型（score_kind 为 risk），并标明当前是否可用。
+
+    名单来自模型工厂的登记表而非固定常量：新登记的风险模型会自动进入名单；
+    真假分类器（probability）与模板模型因 score_kind 不为 risk 而被排除。
+    """
     return [
-        {**model, "available": model["id"] in available_ids}
-        for model in RISK_MODELS
+        {
+            "id": model["id"],
+            "display_name": model["display_name"],
+            "description": model["description"],
+            "available": model["available"],
+        }
+        for model in checkmodel.get_registered_models()
+        if model.get("score_kind") == "risk"
     ]
 
 
-def _validate_request(message, model_ids, mode):
+def _validate_request(message, model_ids, mode, risk_models):
     if not isinstance(message, str) or not message.strip():
         raise ValueError("请输入消息内容")
     message = message.strip()
@@ -57,7 +48,7 @@ def _validate_request(message, model_ids, mode):
 
     selected = []
     for model_id in model_ids:
-        if not isinstance(model_id, str) or model_id not in _MODEL_BY_ID:
+        if not isinstance(model_id, str) or model_id not in risk_models:
             raise ValueError("所选模型不能参与语言风险检测")
         if model_id in selected:
             raise ValueError("不能重复选择同一个风险模型")
@@ -88,11 +79,11 @@ def _validate_output(output):
     return score, _risk_level(score), reason.strip()
 
 
-def _check_member(message, model_id):
+def _check_member(message, model_id, display_name):
     started = perf_counter()
     member = {
         "id": model_id,
-        "display_name": _MODEL_BY_ID[model_id]["display_name"],
+        "display_name": display_name,
         "status": "error",
         "score": None,
         "level": None,
@@ -131,9 +122,13 @@ def _check_member(message, model_id):
 
 def run_risk_check(message, model_ids, mode="vote"):
     """按选定成员总数计票；无多数则对有效分数取均值，零有效分才无法判断。"""
-    message, selected = _validate_request(message, model_ids, mode)
+    risk_models = {model["id"]: model for model in get_risk_models()}
+    message, selected = _validate_request(message, model_ids, mode, risk_models)
     started = perf_counter()
-    members = [_check_member(message, model_id) for model_id in selected]
+    members = [
+        _check_member(message, model_id, risk_models[model_id]["display_name"])
+        for model_id in selected
+    ]
     votes = {"low": 0, "medium": 0, "high": 0}
     for member in members:
         if member["status"] == "ok":

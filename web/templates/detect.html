@@ -41,19 +41,23 @@
                 <legend class="risk-section-heading"><span class="risk-step" aria-hidden="true">02</span> 选择检测方式</legend>
                 <div class="risk-mode-options">
                     <label class="risk-mode-option">
-                        <input type="radio" name="mode" value="vote" {% if mode != 'single' %}checked{% endif %}>
+                        <input type="radio" name="mode" value="vote" {% if mode not in ('single', 'classifier') %}checked{% endif %}>
                         <span><strong>多模型投票</strong><small>选择 2–3 个模型</small></span>
                     </label>
                     <label class="risk-mode-option">
                         <input type="radio" name="mode" value="single" {% if mode == 'single' %}checked{% endif %}>
                         <span><strong>单模型分析</strong><small>选择 1 个模型</small></span>
                     </label>
+                    <label class="risk-mode-option">
+                        <input type="radio" name="mode" value="classifier" {% if mode == 'classifier' %}checked{% endif %}>
+                        <span><strong>分类器检测</strong><small>真假分类，输出虚假概率</small></span>
+                    </label>
                 </div>
             </fieldset>
 
             <fieldset class="risk-fieldset risk-model-fieldset" aria-describedby="risk-selection-help">
                 <legend class="risk-model-legend">参与模型 <span>{{ available_models | length }} / {{ models | length }} 可用</span></legend>
-                <div class="risk-model-list">
+                <div class="risk-model-list" data-model-group="risk" {% if mode == 'classifier' %}hidden{% endif %}>
                     {% for m in models %}
                     <label class="risk-model {% if not m.available %}risk-model-unavailable{% endif %}">
                         <input type="checkbox" name="models" value="{{ m.id }}" data-available="{{ 'true' if m.available else 'false' }}"
@@ -69,7 +73,22 @@
                     <p class="risk-empty-models">尚未配置可用模型。</p>
                     {% endfor %}
                 </div>
-                <p id="risk-selection-help" class="risk-selection-help" aria-live="polite">{% if mode == 'single' %}请选择 1 个可用模型。{% else %}请选择 2–3 个模型，至少一个可用。优先按多数票判断，无多数时使用有效分数的均值。{% endif %}</p>
+                <div class="risk-model-list" data-model-group="classifier" {% if mode != 'classifier' %}hidden{% endif %}>
+                    {% for m in classifier_models %}
+                    <label class="risk-model">
+                        <input type="radio" name="classifier_model" value="{{ m.id }}" {% if m.id == classifier_selected %}checked{% endif %}>
+                        <span class="risk-model-copy">
+                            <span class="risk-model-title"><strong>{{ m.display_name }}</strong>
+                                <span class="risk-availability risk-availability-ready">可用</span>
+                            </span>
+                            <span class="risk-model-description">{{ m.description }}</span>
+                        </span>
+                    </label>
+                    {% else %}
+                    <p class="risk-empty-models">尚未配置可用的分类模型。请先训练分类器（python src/train_rumor_model.py）。</p>
+                    {% endfor %}
+                </div>
+                <p id="risk-selection-help" class="risk-selection-help" aria-live="polite">{% if mode == 'classifier' %}请选择 1 个分类模型；分类器输出真假概率，与语言风险分含义不同。{% elif mode == 'single' %}请选择 1 个可用模型。{% else %}请选择 2–3 个模型，至少一个可用。优先按多数票判断，无多数时使用有效分数的均值。{% endif %}</p>
             </fieldset>
 
             {% if available_models | length < models | length or not models %}
@@ -80,7 +99,7 @@
             </details>
             {% endif %}
 
-            <button type="submit" class="risk-submit" {% if not available_models %}disabled{% endif %}>
+            <button type="submit" class="risk-submit" {% if not available_models and not classifier_models %}disabled{% endif %}>
                 <span>开始检测</span><span aria-hidden="true">→</span>
             </button>
             <p class="risk-runtime-note">本机模型依次运行，完成后统一展示结果。运行时间取决于模型与设备性能。</p>

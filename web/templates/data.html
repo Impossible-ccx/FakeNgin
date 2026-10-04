@@ -1,6 +1,39 @@
 {% extends "base.html" %}
 {% set nature_class = {'虚假': 'fake', '真实': 'real', '中立': 'neutral', '未校验': 'unknown'} %}
 
+{% macro messages_table(rows, nature_class) %}
+<div class="table-wrap">
+    <table class="msg-table">
+        <thead>
+            <tr>
+                <th>消息内容</th>
+                <th>性质</th>
+                <th>风险评分</th>
+                <th>历史分类分数</th>
+                <th>来源</th>
+                <th>发出时间</th>
+                <th>处理时间</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr>
+                <td class="cell-content"><div class="clamp">{{ r.content }}</div></td>
+                <td><span class="nature nature-{{ nature_class.get(r.nature, 'unknown') }}">{{ r.nature }}</span></td>
+                <td title="{{ r.risk_model }} · {{ r.risk_reason }}">{% if r.risk_score %}{{ r.risk_score }} / 100{% else %}<span class="muted">—</span>{% endif %}</td>
+                <td>{% if r.fake_probability %}{{ r.fake_probability }}%{% else %}<span class="muted">—</span>{% endif %}</td>
+                <td>{{ r.source }}</td>
+                <td class="cell-time">{{ r.publish_time or '—' }}</td>
+                <td class="cell-time">{{ r.process_time or '—' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="empty">暂无消息</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endmacro %}
+
 {% block title %}FakeNgin · 谣言数据展示{% endblock %}
 
 {% block content %}
@@ -17,41 +50,12 @@
 
     {% if query %}
         {% if search_results %}
-        <div class="table-wrap">
-            <table class="msg-table">
-                <thead>
-                    <tr>
-                        <th>消息内容</th>
-                        <th>性质</th>
-                        <th>风险评分</th>
-                        <th>历史分类分数</th>
-                        <th>来源</th>
-                        <th>发出时间</th>
-                        <th>处理时间</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for r in search_results %}
-                    <tr>
-                        <td class="cell-content"><div class="clamp">{{ r.content }}</div></td>
-                        <td><span class="nature nature-{{ nature_class.get(r.nature, 'unknown') }}">{{ r.nature }}</span></td>
-                        <td title="{{ r.risk_model }} · {{ r.risk_reason }}">{% if r.risk_score %}{{ r.risk_score }} / 100{% else %}<span class="muted">—</span>{% endif %}</td>
-                        <td>{% if r.fake_probability %}{{ r.fake_probability }}%{% else %}<span class="muted">—</span>{% endif %}</td>
-                        <td>{{ r.source }}</td>
-                        <td class="cell-time">{{ r.publish_time or '—' }}</td>
-                        <td class="cell-time">{{ r.process_time or '—' }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+            {{ messages_table(search_results, nature_class) }}
         {% else %}
         <p class="search-empty">暂无相关结果</p>
         {% endif %}
     {% endif %}
 </section>
-
-<section class="panel panel-blank"></section>
 
 <section class="panel">
     <div class="panel-head">
@@ -59,36 +63,7 @@
         <span class="panel-meta">共 {{ total }} 条 · 第 {{ page }} / {{ total_pages }} 页</span>
     </div>
 
-    <div class="table-wrap">
-        <table class="msg-table">
-            <thead>
-                <tr>
-                    <th>消息内容</th>
-                    <th>性质</th>
-                    <th>风险评分</th>
-                    <th>历史分类分数</th>
-                    <th>来源</th>
-                    <th>发出时间</th>
-                    <th>处理时间</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for r in rows %}
-                <tr>
-                    <td class="cell-content"><div class="clamp">{{ r.content }}</div></td>
-                    <td><span class="nature nature-{{ nature_class.get(r.nature, 'unknown') }}">{{ r.nature }}</span></td>
-                    <td title="{{ r.risk_model }} · {{ r.risk_reason }}">{% if r.risk_score %}{{ r.risk_score }} / 100{% else %}<span class="muted">—</span>{% endif %}</td>
-                    <td>{% if r.fake_probability %}{{ r.fake_probability }}%{% else %}<span class="muted">—</span>{% endif %}</td>
-                    <td>{{ r.source }}</td>
-                    <td class="cell-time">{{ r.publish_time or '—' }}</td>
-                    <td class="cell-time">{{ r.process_time or '—' }}</td>
-                </tr>
-                {% else %}
-                <tr><td colspan="7" class="empty">暂无消息</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+    {{ messages_table(rows, nature_class) }}
 
     <div class="pagination">
         {% if page > 1 %}
@@ -104,4 +79,8 @@
         {% endif %}
     </div>
 </section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/data.js') }}"></script>
 {% endblock %}

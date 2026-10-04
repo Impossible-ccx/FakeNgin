@@ -12,6 +12,9 @@
     var count = document.getElementById('risk-char-count');
     var selectionHelp = document.getElementById('risk-selection-help');
     var modelInputs = Array.from(form.querySelectorAll('input[name="models"]'));
+    var classifierInputs = Array.from(form.querySelectorAll('input[name="classifier_model"]'));
+    var riskGroup = form.querySelector('[data-model-group="risk"]');
+    var classifierGroup = form.querySelector('[data-model-group="classifier"]');
     var modeInputs = Array.from(form.querySelectorAll('input[name="mode"]'));
     var example = document.getElementById('risk-example');
     var clear = document.getElementById('risk-clear');
@@ -32,7 +35,24 @@
 
     function updateSelection(changedInput) {
         if (busy) return;
-        if (currentMode() === 'single') {
+        var mode = currentMode();
+        var classifierMode = mode === 'classifier';
+        if (riskGroup) riskGroup.hidden = classifierMode;
+        if (classifierGroup) classifierGroup.hidden = !classifierMode;
+        if (classifierMode) {
+            classifierInputs.forEach(function (input) {
+                input.closest('.risk-model').classList.toggle('risk-selected', input.checked);
+            });
+            var hasClassifier = classifierInputs.length > 0;
+            selectionHelp.textContent = hasClassifier
+                ? '已选择真假分类器；输出虚假概率，与语言风险分含义不同。'
+                : '暂无可用分类模型，请先完成准备步骤。';
+            button.disabled = !hasClassifier || !classifierInputs.some(function (input) {
+                return input.checked;
+            });
+            return;
+        }
+        if (mode === 'single') {
             var selected = selectedModels();
             var keep = changedInput && changedInput.checked ? changedInput : selected.find(isAvailable) || selected[0];
             modelInputs.forEach(function (input) {
@@ -42,13 +62,13 @@
         var chosen = selectedModels().length;
         var chosenAvailable = selectedModels().filter(isAvailable).length;
         var available = modelInputs.filter(isAvailable).length;
-        var valid = (currentMode() === 'single' ? chosen === 1 : chosen >= 2 && chosen <= 3) && chosenAvailable > 0;
+        var valid = (mode === 'single' ? chosen === 1 : chosen >= 2 && chosen <= 3) && chosenAvailable > 0;
         modelInputs.forEach(function (input) {
             input.closest('.risk-model').classList.toggle('risk-selected', input.checked && !input.disabled);
         });
         if (!available) {
             selectionHelp.textContent = '暂无可用模型，请先完成下方准备步骤。';
-        } else if (currentMode() === 'single') {
+        } else if (mode === 'single') {
             selectionHelp.textContent = chosen && !chosenAvailable ? '所选模型未就绪，请选择一个可用模型。' : '已选择 ' + chosen + ' 个模型；单模型分析需要选择 1 个可用模型。';
         } else if (chosen >= 2 && chosen <= 3 && !chosenAvailable) {
             selectionHelp.textContent = '所选模型均未就绪，请至少加入一个可用模型。';
@@ -69,6 +89,9 @@
 
     modelInputs.forEach(function (input) {
         input.addEventListener('change', function () { updateSelection(input); });
+    });
+    classifierInputs.forEach(function (input) {
+        input.addEventListener('change', function () { updateSelection(); });
     });
     modeInputs.forEach(function (input) {
         input.addEventListener('change', function () { updateSelection(); });

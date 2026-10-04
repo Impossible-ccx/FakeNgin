@@ -13,8 +13,23 @@ from checkmodel.ensemble import MAX_MESSAGE_LENGTH, get_risk_models, run_risk_ch
 
 MODEL_IDS = ["qwen2.5_7b", "deepseek_r1", "glm4_9b"]
 
+# 模型工厂登记表的模拟数据：三个风险模型，默认全部可用
+REGISTRY = [
+    {"id": "qwen2.5_7b", "display_name": "Qwen2.5-7B (Ollama)", "description": "风险模型", "score_kind": "risk", "available": True},
+    {"id": "deepseek_r1", "display_name": "DeepSeek-R1 (Ollama)", "description": "风险模型", "score_kind": "risk", "available": True},
+    {"id": "glm4_9b", "display_name": "GLM-4-9B (Ollama)", "description": "风险模型", "score_kind": "risk", "available": True},
+]
+
 
 class RiskVotingTests(unittest.TestCase):
+    def setUp(self):
+        self.registry = patch(
+            "checkmodel.ensemble.checkmodel.get_registered_models",
+            return_value=[dict(model) for model in REGISTRY],
+        )
+        self.registry.start()
+        self.addCleanup(self.registry.stop)
+
     def run_check(self, outputs, model_ids=None, mode="vote"):
         selected = MODEL_IDS if model_ids is None else model_ids
 
@@ -260,8 +275,14 @@ class RiskVotingTests(unittest.TestCase):
         self.assertTrue(all(member["elapsed_seconds"] >= 0 for member in result["members"]))
 
     def test_model_listing_includes_unavailable_and_excludes_other_models(self):
-        available = [{"id": MODEL_IDS[0]}, {"id": "template_model"}, {"id": "roberta_rumor"}]
-        with patch("checkmodel.ensemble.checkmodel.get_models", return_value=available):
+        registry = [
+            {"id": "qwen2.5_7b", "display_name": "Qwen", "description": "风险模型", "score_kind": "risk", "available": True},
+            {"id": "deepseek_r1", "display_name": "DeepSeek", "description": "风险模型", "score_kind": "risk", "available": False},
+            {"id": "glm4_9b", "display_name": "GLM", "description": "风险模型", "score_kind": "risk", "available": False},
+            {"id": "template_model", "display_name": "模板模型", "description": "固定输出", "score_kind": "probability", "available": False},
+            {"id": "roberta_rumor", "display_name": "RoBERTa", "description": "真假分类", "score_kind": "probability", "available": True},
+        ]
+        with patch("checkmodel.ensemble.checkmodel.get_registered_models", return_value=registry):
             models = get_risk_models()
         self.assertEqual([model["id"] for model in models], MODEL_IDS)
         self.assertEqual([model["available"] for model in models], [True, False, False])
