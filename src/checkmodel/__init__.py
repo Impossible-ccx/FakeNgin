@@ -1,7 +1,8 @@
 """谣言检测模型工厂。
 
 手动维护 MODEL_MODULES 列表以登记模型；首次加载时对每个模型执行
-实例化 -> detect() -> initialize()，仅保留可用模型。
+实例化 -> detect() -> initialize()。可用模型保留实例，全部登记模型
+（含不可用）的元信息通过 get_registered_models() 提供。
 """
 
 import importlib
@@ -19,6 +20,7 @@ MODEL_MODULES = [
 
 _instances = {}
 _available = {}
+_registered = {}
 _loaded = False
 
 
@@ -36,6 +38,7 @@ def _ensure_loaded():
     if _loaded:
         return
     for module_name in MODEL_MODULES:
+        model_class = None
         try:
             model_class = _load_module_class(module_name)
             instance = model_class()
@@ -46,28 +49,39 @@ def _ensure_loaded():
             print("模型模块 {} 加载失败：{}".format(module_name, exc), file=sys.stderr)
             available = False
             instance = None
+        if model_class is None:
+            continue
+        _registered[model_class.name] = {
+            "id": model_class.name,
+            "display_name": model_class.display_name,
+            "description": model_class.description,
+            "score_kind": getattr(model_class, "score_kind", "probability"),
+            "available": available,
+        }
         if available:
             _instances[model_class.name] = instance
             _available[model_class.name] = True
     _loaded = True
 
 
+def get_registered_models():
+    """返回全部已登记模型的元信息（含不可用模型，按登记顺序）。"""
+    _ensure_loaded()
+    return [dict(info) for info in _registered.values()]
+
+
 def get_models():
     """返回全部可用模型的元信息。"""
     _ensure_loaded()
-    models = []
-    for module_name in MODEL_MODULES:
-        try:
-            model_class = _load_module_class(module_name)
-        except Exception:
-            continue
-        if _available.get(model_class.name):
-            models.append({
-                "id": model_class.name,
-                "display_name": model_class.display_name,
-                "description": model_class.description,
-            })
-    return models
+    return [
+        {
+            "id": info["id"],
+            "display_name": info["display_name"],
+            "description": info["description"],
+        }
+        for info in _registered.values()
+        if info["available"]
+    ]
 
 
 def get_model(model_id) -> base.CheckModel:

@@ -25,6 +25,15 @@ RISK_MODELS = [
 RISK_IDS = [model["id"] for model in RISK_MODELS]
 
 
+def risk_registry(available=(True, True, True), extra=()):
+    """构造模型工厂 get_registered_models 的模拟返回值。"""
+    entries = [
+        {**model, "score_kind": "risk", "available": flag}
+        for model, flag in zip(RISK_MODELS, available)
+    ]
+    return entries + list(extra)
+
+
 def without_timings(value):
     """Compare full-page and fragment decisions without wall-clock variation."""
     if isinstance(value, dict):
@@ -46,7 +55,7 @@ class DetectRouteTests(unittest.TestCase):
             SESSIONS_FILE=self.database_dir / "sessions.csv",
         ))
         self.stack.enter_context(patch.object(newsdata, "NEWSDATA_DIR", self.database_dir / "newsdata"))
-        self.available_models = self.stack.enter_context(patch.object(checkmodel, "get_models", return_value=RISK_MODELS))
+        self.registered_models = self.stack.enter_context(patch.object(checkmodel, "get_registered_models", return_value=risk_registry()))
         self.model_instances = {
             model_id: Mock(check=Mock(return_value=(80, "需要核实具体消息来源。")))
             for model_id in RISK_IDS
@@ -83,7 +92,7 @@ class DetectRouteTests(unittest.TestCase):
         return response, self.contexts[-1][1]
 
     def test_get_with_no_models_keeps_all_choices_and_explains_unavailability(self):
-        self.available_models.return_value = []
+        self.registered_models.return_value = risk_registry(available=(False, False, False))
         response = self.client.get("/detect")
         self.assertEqual(response.status_code, 200)
         context = self.contexts[-1][1]
@@ -100,10 +109,10 @@ class DetectRouteTests(unittest.TestCase):
         self.get_model.assert_not_called()
 
     def test_risk_roster_excludes_template_and_truth_classifier(self):
-        self.available_models.return_value = RISK_MODELS + [
-            {"id": "template_model", "display_name": "Template", "description": "constant output"},
-            {"id": "roberta_rumor", "display_name": "RoBERTa", "description": "truth labels"},
-        ]
+        self.registered_models.return_value = risk_registry(extra=[
+            {"id": "template_model", "display_name": "Template", "description": "constant output", "score_kind": "probability", "available": False},
+            {"id": "roberta_rumor", "display_name": "RoBERTa", "description": "truth labels", "score_kind": "probability", "available": True},
+        ])
         self.client.get("/detect")
         context = self.contexts[-1][1]
         self.assertEqual({model["id"] for model in context["models"]}, set(RISK_IDS))
@@ -209,7 +218,7 @@ class DetectRouteTests(unittest.TestCase):
         self.assertTrue(result["has_failures"])
 
     def test_unavailable_selected_model_stays_in_denominator(self):
-        self.available_models.return_value = RISK_MODELS[:2]
+        self.registered_models.return_value = risk_registry(available=(True, True, False))
         del self.model_instances[RISK_IDS[2]]
         _, context = self.submit()
         result = context["result"]
@@ -310,7 +319,9 @@ class DetectRouteTests(unittest.TestCase):
             self.assertIn(full_context["result"]["label"], html)
             self.assertNotIn("/detect/save", html)
             self.assertNotIn("保存到数据集", html)
-            self.assertNotIn("虚假概率", html)
+        # 整页的「分类器检测」模式选项按设计提及虚假概率（真假分类分数）；
+        # 风险检测结果片段本身仍不得出现真假概率字样。
+        self.assertNotIn("虚假概率", fragment_html)
         append_message.assert_not_called()
         self.assertEqual(self.database_snapshot(), self.initial_database)
 
