@@ -1,0 +1,25 @@
+.risk-live { padding:24px; border:1px solid #d5e3f4; border-radius:14px; background:#f8fbff; }
+.risk-live-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px; margin-bottom:16px; }
+.risk-live-header h2 { margin:0; font-size:20px; color:#2c4664; }
+.risk-live-header p { margin:4px 0; }
+.risk-live-count { display:inline-block; color:#506780; font-size:13px; }
+.risk-live-track { display:block; width:100%; height:8px; margin:0 0 22px; accent-color:#3b82f6; }
+.risk-live-members { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr)); gap:14px; }
+.risk-live-member { min-width:0; padding:18px; border:1px solid #dfe8f5; border-radius:10px; background:#fff; }
+.risk-live-member h3 { margin:0 0 8px; font-size:15px; color:#35506e; }
+.risk-live-member[data-status="queued"],.risk-live-member[data-status="interrupted"] { background:#f3f6fa; }
+.risk-live-member[data-status="running"] { border-color:#76a8e8; background:#f0f7ff; }
+.risk-live-member[data-status="ok"] { border-color:#acd7c4; }
+.risk-live-member[data-status="error"] { border-color:#e4b6ab; background:#fff6f3; }
+.risk-live-member[data-status="unavailable"],.risk-live-member[data-status="abstained"] { background:#f5f7fb; }
+.risk-live-status { display:inline-flex; align-items:center; gap:7px; color:#687a90; font-size:12px; }
+.risk-live-member[data-status="running"] .risk-live-status { color:#2e6cb7; }
+.risk-live-member[data-status="running"] .risk-live-status::before { content:""; width:9px; height:9px; border:2px solid #d4e4f8; border-top-color:#5889ca; border-radius:50%; animation:risk-live-spin .8s linear infinite; }
+.risk-live-member[data-status="ok"] .risk-live-status { color:#28764f; }
+.risk-live-member[data-status="error"] .risk-live-status { color:#9e4736; }
+.risk-live-score { display:block; margin:8px 0; color:#345f90; font-size:26px; font-variant-numeric:tabular-nums; }
+.risk-live-reason { margin:9px 0 0; color:#65788f; font-size:13px; line-height:1.8; white-space:pre-wrap; overflow-wrap:anywhere; }
+.risk-live-timer { color:#65788f; font-size:13px; font-variant-numeric:tabular-nums; }
+@keyframes risk-live-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .risk-live-member[data-status="running"] .risk-live-status::before { animation:none; } }
+@media (max-width:480px) { .risk-live { padding:16px; } .risk-live-header h2 { font-size:17px; } }

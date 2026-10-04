@@ -2,6 +2,7 @@
 {% set available_models = models | selectattr('available') | list %}
 
 {% block title %}FakeNgin · 风险检测工作台{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static',filename='css/progress.css') }}">{% endblock %}
 
 {% block content %}
 <div class="risk-workspace">
@@ -16,7 +17,7 @@
     </header>
 
     <form id="detect-form" class="risk-form" method="post" action="{{ url_for('main.detect') }}"
-          data-check-url="{{ url_for('main.detect_check') }}">
+          data-check-url="{{ url_for('main.detect_check') }}" data-stream-url="{{ url_for('main.detect_stream') }}">
         <div class="risk-input-panel">
             <div class="risk-section-heading">
                 <label for="risk-message"><span class="risk-step" aria-hidden="true">01</span> 输入消息</label>
@@ -57,7 +58,7 @@
                 <div class="risk-model-list">
                     {% for m in models %}
                     <label class="risk-model {% if not m.available %}risk-model-unavailable{% endif %}">
-                        <input type="checkbox" name="models" value="{{ m.id }}" data-available="{{ 'true' if m.available else 'false' }}"
+                        <input type="checkbox" name="models" value="{{ m.id }}" data-available="{{ 'true' if m.available else 'false' }}" data-ui-display-name="{{ model_labels[m.id] }}"
                                {% if m.id in selected_ids %}checked{% endif %}>
                         <span class="risk-model-copy">
                             <span class="risk-model-title"><strong>{{ m.display_name }}</strong>
@@ -84,7 +85,7 @@
             <button type="submit" class="risk-submit" {% if not available_models %}disabled{% endif %}>
                 <span>开始检测</span><span aria-hidden="true">→</span>
             </button>
-            <p class="risk-runtime-note">本机模型依次运行，完成后统一展示结果。运行时间取决于模型与设备性能。</p>
+            <p class="risk-runtime-note">本机模型依次运行，每个模型返回后即时更新进度，完整报告自动保存。</p>
             <noscript><p class="risk-help">提交后请等待页面返回；单模型模式请选择一个模型，投票模式请选择两个或三个模型。</p></noscript>
         </div>
     </form>

@@ -72,6 +72,11 @@ def _validate_request(message, model_ids, mode):
     return message, selected
 
 
+def validate_risk_request(message, model_ids, mode="vote"):
+    """同步与流式检测共用的输入校验；此处不会获取或运行模型。"""
+    return _validate_request(message, model_ids, mode)
+
+
 def _risk_level(score):
     return "low" if score < 40 else "medium" if score < 70 else "high"
 
@@ -91,19 +96,23 @@ def _validate_output(output):
     return score, _risk_level(score), reason.strip()
 
 
-def _check_member(message, model_id):
-    started = perf_counter()
-    member = {
+def _empty_member(model_id, status="error"):
+    return {
         "id": model_id,
         "display_name": _MODEL_BY_ID[model_id]["display_name"],
-        "status": "error",
+        "status": status,
         "score": None,
         "level": None,
-        "label": "检测失败",
+        "label": "正在分析" if status == "running" else "检测失败",
         "reason": "",
         "error": None,
         "elapsed_seconds": 0.0,
     }
+
+
+def _check_member(message, model_id):
+    started = perf_counter()
+    member = _empty_member(model_id)
     try:
         try:
             model = checkmodel.get_model(model_id)
@@ -134,11 +143,8 @@ def _check_member(message, model_id):
     return member
 
 
-def run_risk_check(message, model_ids, mode="vote"):
+def _aggregate_result(members, selected, mode, started):
     """按选定成员总数计票；无多数则对有效分数取均值，零有效分才无法判断。"""
-    message, selected = _validate_request(message, model_ids, mode)
-    started = perf_counter()
-    members = [_check_member(message, model_id) for model_id in selected]
     votes = {"low": 0, "medium": 0, "high": 0}
     for member in members:
         if member["status"] == "ok":
@@ -200,3 +206,23 @@ def run_risk_check(message, model_ids, mode="vote"):
         "elapsed_seconds": round(perf_counter() - started, 3),
         "members": members,
     }
+
+
+def iter_risk_check(message, model_ids, mode="vote"):
+    """先发送开始事件，再逐个调用本地模型；只有完整执行后才聚合结果。"""
+    message, selected = validate_risk_request(message, model_ids, mode)
+    started = perf_counter()
+    members = []
+    for model_id in selected:
+        yield {"type": "member_start", "member": _empty_member(model_id, "running")}
+        member = _check_member(message, model_id)
+        members.append(member)
+        yield {"type": "member_complete", "member": dict(member)}
+    yield {"type": "complete", "result": _aggregate_result(members, selected, mode, started)}
+
+
+def run_risk_check(message, model_ids, mode="vote"):
+    """同步入口消费同一组真实模型事件，保证与流式检测的评分规则相同。"""
+    for event in iter_risk_check(message, model_ids, mode):
+        if event["type"] == "complete":
+            return event["result"]
