@@ -6,7 +6,6 @@ python scripts/start_web.py --no-browser  启动网站，不自动打开浏览�
 """
 
 import argparse
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -22,10 +21,20 @@ DEPENDENCIES = ("flask", "pandas", "jieba", "ollama")
 MIN_PYTHON = (3, 10)
 MAX_PYTHON = (3, 14)
 _PROBE = "\n".join([
-    "import importlib.util, json, sys",
+    "import contextlib, importlib, importlib.util, json, sys",
+    "sys.path = [entry for entry in sys.path if entry]",
     "modules = " + repr(DEPENDENCIES),
-    "print(json.dumps({'python': list(sys.version_info[:3]), 'missing': "
-    "[name for name in modules if importlib.util.find_spec(name) is None]}))",
+    "missing, broken = [], {}",
+    "for name in modules:",
+    "    try:",
+    "        with contextlib.redirect_stdout(sys.stderr):",
+    "            if importlib.util.find_spec(name) is None:",
+    "                missing.append(name)",
+    "            else:",
+    "                importlib.import_module(name)",
+    "    except Exception as exc:",
+    "        broken[name] = type(exc).__name__ + ': ' + str(exc)",
+    "print(json.dumps({'python': list(sys.version_info[:3]), 'missing': missing, 'broken': broken}))",
 ])
 
 
@@ -34,22 +43,22 @@ class StartupError(RuntimeError):
 
 
 def _supported(state):
-    return MIN_PYTHON <= tuple(state["python"][:2]) <= MAX_PYTHON
+    return state is not None and MIN_PYTHON <= tuple(state["python"][:2]) <= MAX_PYTHON
 
 
 def _ready(state):
-    return state is not None and _supported(state) and not state["missing"]
+    return _supported(state) and not state["missing"] and not state.get("broken")
 
 
 def _probe(executable):
-    if Path(executable).resolve() == Path(sys.executable).resolve():
-        return {
-            "python": list(sys.version_info[:3]),
-            "missing": [name for name in DEPENDENCIES if importlib.util.find_spec(name) is None],
-        }
+    # 在独立进程实际导入基础依赖，捕获坏包、DLL 或版本冲突；不导入应用和模型。
+    # -B 保证检查不会生成 __pycache__，-S 保留调用者禁用 site 的检查方式。
+    arguments = [str(executable), "-B", "-X", "utf8"]
+    if sys.flags.no_site:
+        arguments.append("-S")
     try:
         process = subprocess.run(
-            [str(executable), "-c", _PROBE], capture_output=True, text=True,
+            [*arguments, "-c", _PROBE], capture_output=True, text=True,
             encoding="utf-8", timeout=30, check=False,
         )
         return json.loads(process.stdout) if process.returncode == 0 else None
@@ -62,9 +71,12 @@ def _venv_python(root):
 
 
 def environment_plan(root):
-    """仅检查解释器和包位置；不导入应用，故不会创建用户数据。"""
+    """仅探测解释器和基础依赖；不导入应用，不创建用户数据。"""
     root = Path(root).resolve()
-    current = _probe(sys.executable)
+    current = _probe(sys.executable) or {
+        "python": list(sys.version_info[:3]), "missing": list(DEPENDENCIES),
+        "broken": {"environment": "无法完成基础依赖导入检查"},
+    }
     if _ready(current):
         return {"ready": True, "executable": sys.executable, "state": current,
                 "create_venv": False, "install": False}
@@ -81,8 +93,8 @@ def _prepare(root, plan, no_install=False):
     if plan["ready"]:
         return Path(plan["executable"])
     if no_install:
-        raise StartupError("缺少基础依赖；允许自动安装后重试，或先按 requirements.txt 安装。")
-    if not _supported(_probe(sys.executable)):
+        raise StartupError("基础依赖缺失或无法导入；允许自动安装后重试，或先按 requirements.txt 安装。")
+    if not _supported({"python": list(sys.version_info[:3])}):
         raise StartupError("请使用 Python 3.10 至 3.14，再重新运行启动器。")
     local_python = _venv_python(root)
     if plan["create_venv"]:
@@ -103,7 +115,7 @@ def _prepare(root, plan, no_install=False):
     if result.returncode != 0:
         raise StartupError("基础依赖安装失败；请检查网络连接和 pip 输出，再重新运行。")
     if not _ready(_probe(local_python)):
-        raise StartupError("安装后仍缺少基础依赖；请检查上方安装输出。")
+        raise StartupError("安装后基础依赖仍缺失或无法导入；请检查上方安装输出。")
     return local_python
 
 
@@ -171,7 +183,13 @@ def main(argv=None):
             if not _supported(plan["state"]):
                 print("请使用 Python 3.10 至 3.14。")
             else:
-                print("环境已就绪。" if plan["ready"] else "需要准备基础依赖：" + ", ".join(plan["state"]["missing"]))
+                if plan["ready"]:
+                    print("环境已就绪。")
+                else:
+                    if plan["state"]["missing"]:
+                        print("缺少基础依赖：" + ", ".join(plan["state"]["missing"]))
+                    for name, error in plan["state"].get("broken", {}).items():
+                        print("基础依赖无法导入：{}（{}）".format(name, error))
             if plan["create_venv"] and not plan["ready"]:
                 print("正常启动时将在本项目创建 .venv；本次检查不会创建。")
         return 0 if options.dry_run or plan["ready"] else 1

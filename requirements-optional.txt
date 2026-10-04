@@ -3,6 +3,7 @@
 # Ollama 的轻量 Python 客户端已包含在 requirements.txt；
 # 本地服务程序和模型权重仍需按需自行准备，启动器不会安装或下载。
 
-# 中文 RoBERTa 谣言分类器（pip 安装的 torch 在 Windows 上默认即 CPU 版）
+# 中文 RoBERTa 分类器：仅在训练或使用该分类器时安装。
+# 是否能够使用 GPU 取决于实际安装的 torch 和本机环境。
 torch
 transformers

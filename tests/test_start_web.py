@@ -61,7 +61,7 @@ class StartWebTests(unittest.TestCase):
                 local_python.write_bytes(b"placeholder")
             return Mock(returncode=0)
 
-        with patch.object(launcher, "_probe", side_effect=[MISSING, MISSING, READY]), \
+        with patch.object(launcher, "_probe", side_effect=[MISSING, READY]), \
                 patch.object(launcher.subprocess, "run", side_effect=fake_run):
             self.assertEqual(launcher._prepare(self.root, plan), local_python)
         self.assertEqual(commands[0][0], [sys.executable, "-m", "venv", str(self.root / ".venv")])
@@ -85,13 +85,58 @@ class StartWebTests(unittest.TestCase):
 
     def test_no_install_and_unsupported_python_fail_without_creating_venv(self):
         with patch.object(launcher.subprocess, "run") as run:
-            with self.assertRaisesRegex(launcher.StartupError, "缺少基础依赖"):
+            with self.assertRaisesRegex(launcher.StartupError, "依赖缺失或无法导入"):
                 launcher._prepare(self.root, {"ready": False}, no_install=True)
-            with patch.object(launcher, "_probe", return_value={"python": [3, 9, 0], "missing": []}):
+            with patch.object(launcher.sys, "version_info", (3, 9, 0)):
                 with self.assertRaisesRegex(launcher.StartupError, "3.10"):
                     launcher._prepare(self.root, {"ready": False, "create_venv": True})
             run.assert_not_called()
         self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_broken_current_dependencies_fall_back_to_existing_ready_repo_environment(self):
+        local_python = launcher._venv_python(self.root)
+        local_python.parent.mkdir(parents=True)
+        local_python.write_bytes(b"placeholder")
+        broken = {"python": [3, 12, 10], "missing": [], "broken": {"pandas": "ImportError: DLL load failed"}}
+        with patch.object(launcher, "_probe", side_effect=[broken, READY]), \
+                patch.object(launcher.subprocess, "run") as run:
+            plan = launcher.environment_plan(self.root)
+            self.assertTrue(plan["ready"])
+            self.assertEqual(launcher._prepare(self.root, plan), local_python)
+            run.assert_not_called()
+
+    def test_probe_detects_import_failure_and_never_writes_bytecode(self):
+        # 包可被 find_spec 发现但不能导入，模拟常见 DLL / 二进制版本冲突。
+        modules = self.root / "broken packages"
+        modules.mkdir()
+        for name in launcher.DEPENDENCIES:
+            content = "raise ImportError('DLL load failed')\n" if name == "pandas" else "READY = True\n"
+            (modules / (name + ".py")).write_text(content, encoding="utf-8")
+        environment = {**os.environ, "PYTHONPATH": str(modules)}
+        with patch.dict(os.environ, environment, clear=True):
+            state = launcher._probe(sys.executable)
+        self.assertEqual(state["missing"], [])
+        self.assertEqual(state["broken"], {"pandas": "ImportError: DLL load failed"})
+        self.assertFalse(launcher._ready(state))
+        self.assertFalse(list(modules.rglob("*.pyc")))
+
+    def test_failed_probe_is_reported_without_crashing_the_read_only_check(self):
+        with patch.object(launcher, "_probe", return_value=None), \
+                patch.object(launcher, "PROJECT_ROOT", self.root):
+            self.assertEqual(launcher.main(["--check"]), 1)
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_occupied_port_is_reported_without_starting_or_preparing_app(self):
+        # 只占用系统分配的临时端口，不操作用户的 5000 服务。
+        with launcher.socket.socket(launcher.socket.AF_INET, launcher.socket.SOCK_STREAM) as occupied:
+            occupied.bind(("127.0.0.1", 0))
+            occupied.listen(1)
+            port = occupied.getsockname()[1]
+            with patch.object(launcher, "environment_plan", return_value={"ready": True}), \
+                    patch.object(launcher, "_prepare") as prepare, patch.object(launcher, "_serve") as serve:
+                self.assertEqual(launcher.main(["--no-browser", "--port", str(port)]), 1)
+                prepare.assert_not_called()
+                serve.assert_not_called()
 
     def copied_script(self):
         scripts = self.root / "scripts"
@@ -163,6 +208,22 @@ class StartWebTests(unittest.TestCase):
         self.assertEqual(Path(data["project_root"]), self.root)
         self.assertTrue(data["ready"])
         self.assertFalse((self.root / ".venv").exists())
+        self.assertFalse((self.root / "database").exists())
+
+    @unittest.skipUnless(os.name == "nt", "Windows batch entry")
+    def test_windows_batch_shim_failure_returns_to_readable_launcher_message(self):
+        shutil.copyfile(ROOT / "run.bat", self.root / "run.bat")
+        fake_bin = self.root / "命令 目录"
+        fake_bin.mkdir()
+        (fake_bin / "py.bat").write_bytes(b"@echo off\r\nexit /b 7\r\n")
+        environment = {**os.environ, "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", "")}
+        result = subprocess.run(
+            ["cmd", "/d", "/c", str(self.root / "run.bat")], cwd=self.temporary.name,
+            env=environment, input="\n", capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=30, check=False,
+        )
+        self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+        self.assertIn("网站未启动", result.stdout)
         self.assertFalse((self.root / "database").exists())
 
 
