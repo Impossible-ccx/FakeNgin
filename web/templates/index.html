@@ -3,60 +3,64 @@
 {% block title %}FakeNgin · 首页{% endblock %}
 
 {% block content %}
-<section class="hero">
-    <div class="hero-copy">
-        <p class="hero-eyebrow">FAKENGIN / 谣言检测平台</p>
-        <h1 class="hero-title">FakeNgin</h1>
-        <p class="hero-subtitle">
+<section class="overview-hero modules-overview">
+    <div class="overview-copy">
+        <p class="dash-kicker"><span aria-hidden="true"></span> FAKENGIN / 谣言检测平台</p>
+        <h1>从一条消息，<em>到完整的分析记录。</em></h1>
+        <p class="overview-intro">
             简介占位：此处将用于介绍 FakeNgin 谣言检测平台的目标、数据来源与核心能力。
         </p>
+        <div class="overview-actions">
+            <a class="dash-button dash-button-light" href="{{ url_for('main.detect') }}">开始检测 <span aria-hidden="true">↗</span></a>
+            <a class="overview-secondary" href="{{ url_for('main.data') }}">浏览数据展示 <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="overview-tags">
+            <span>本地模型</span><span>风险评分</span><span>人工校验</span>
+        </div>
     </div>
-    <div class="hero-visual" aria-hidden="true">
-        <span class="hero-visual-label">检测流程</span>
-        <div class="hero-visual-input">
-            <span class="hero-visual-icon">文</span>
-            <div><strong>待检测消息</strong><span>输入文本内容</span></div>
-        </div>
-        <div class="hero-visual-link"></div>
-        <div class="hero-visual-models">
-            <div><span>模型</span><strong>Qwen</strong></div>
-            <div><span>模型</span><strong>DeepSeek</strong></div>
-            <div><span>模型</span><strong>GLM</strong></div>
-        </div>
-        <div class="hero-visual-result">
-            <div><span>风险结论</span><strong>综合模型判断</strong></div>
-            <span class="hero-visual-arrow">→</span>
-        </div>
+    <div class="module-map" aria-label="界面由数据展示、检测系统、人工校验三个模块组成">
+        <div class="module-map-heading"><span>界面组成</span><small>03 MODULES</small></div>
+        <ol>
+            <li><span class="module-map-number">01</span><div><strong>数据展示</strong><span>消息浏览 · 关键词检索 · 标签</span></div><span aria-hidden="true">↗</span></li>
+            <li><span class="module-map-number">02</span><div><strong>检测系统</strong><span>模型判断 · 风险评分 · 判断理由</span></div><span aria-hidden="true">↗</span></li>
+            <li><span class="module-map-number">03</span><div><strong>人工校验</strong><span>人工标签 · 数据维护</span></div><span aria-hidden="true">↗</span></li>
+        </ol>
     </div>
 </section>
 
-<div class="cards">
-    <div class="card">
-        <div class="card-top">
-            <span class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 10h16M10 10v10"/></svg></span>
-            <span class="card-number">01</span>
-        </div>
-        <h3>谣言数据展示</h3>
-        <p>浏览与检索已收集的谣言数据。</p>
-        <a class="btn btn-primary" href="{{ url_for('main.data') }}">进入</a>
+<section class="overview-section" aria-labelledby="home-modules-title">
+    <div class="dash-section-heading">
+        <div><p class="dash-eyebrow">WORKSPACE MODULES</p><h2 id="home-modules-title">选择你的工作入口</h2></div>
+        <p>三个模块，围绕同一批消息协作。</p>
     </div>
-    <div class="card">
-        <div class="card-top">
-            <span class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 16v-3m4 3V8m4 8v-5"/></svg></span>
-            <span class="card-number">02</span>
-        </div>
-        <h3>谣言检测系统</h3>
-        <p>对文本进行自动谣言检测与分析。</p>
-        <a class="btn btn-primary" href="{{ url_for('main.detect') }}">进入</a>
+    <div class="overview-tools">
+        <a class="tool-card tool-card-primary" href="{{ url_for('main.data') }}">
+            <div class="tool-card-top">
+                <span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 10h16M10 10v10"/></svg></span>
+                <span>01 / DATA</span>
+            </div>
+            <h3>谣言数据展示</h3>
+            <p>浏览与检索已收集的谣言数据，查看消息原文、来源与标签。</p>
+            <span class="tool-link">进入数据展示 <b aria-hidden="true">↗</b></span>
+        </a>
+        <a class="tool-card" href="{{ url_for('main.detect') }}">
+            <div class="tool-card-top">
+                <span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 16v-3m4 3V8m4 8v-5"/></svg></span>
+                <span>02 / DETECT</span>
+            </div>
+            <h3>谣言检测系统</h3>
+            <p>对文本进行自动谣言检测与分析，逐模型查看风险评分与判断理由。</p>
+            <span class="tool-link">进入检测工作台 <b aria-hidden="true">↗</b></span>
+        </a>
+        <a class="tool-card" href="{{ url_for('main.verify') }}">
+            <div class="tool-card-top">
+                <span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z"/><path d="m8 12 3 3 5-6"/></svg></span>
+                <span>03 / VERIFY</span>
+            </div>
+            <h3>人工校验系统</h3>
+            <p>对检测结果进行人工复核与标注，维护数据集中的消息内容。</p>
+            <span class="tool-link">进入校验工作台 <b aria-hidden="true">↗</b></span>
+        </a>
     </div>
-    <div class="card">
-        <div class="card-top">
-            <span class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z"/><path d="m8 12 3 3 5-6"/></svg></span>
-            <span class="card-number">03</span>
-        </div>
-        <h3>人工校验系统</h3>
-        <p>对检测结果进行人工复核与标注。</p>
-        <a class="btn btn-primary" href="{{ url_for('main.verify') }}">进入</a>
-    </div>
-</div>
+</section>
 {% endblock %}

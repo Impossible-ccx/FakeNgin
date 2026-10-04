@@ -3,31 +3,51 @@
 
 {% macro messages_table(rows, nature_class) %}
 <div class="table-wrap">
-    <table class="msg-table">
+    <table class="msg-table batch-table">
         <thead>
             <tr>
                 <th>消息内容</th>
-                <th>性质</th>
-                <th>风险评分</th>
-                <th>历史分类分数</th>
-                <th>来源</th>
-                <th>发出时间</th>
-                <th>处理时间</th>
+                <th>来源 / 时间</th>
+                <th>检测结果</th>
+                <th>人工标签</th>
             </tr>
         </thead>
         <tbody>
             {% for r in rows %}
             <tr>
-                <td class="cell-content"><div class="clamp">{{ r.content }}</div></td>
-                <td><span class="nature nature-{{ nature_class.get(r.nature, 'unknown') }}">{{ r.nature }}</span></td>
-                <td title="{{ r.risk_model }} · {{ r.risk_reason }}">{% if r.risk_score %}{{ r.risk_score }} / 100{% else %}<span class="muted">—</span>{% endif %}</td>
-                <td>{% if r.fake_probability %}{{ r.fake_probability }}%{% else %}<span class="muted">—</span>{% endif %}</td>
-                <td>{{ r.source }}</td>
-                <td class="cell-time">{{ r.publish_time or '—' }}</td>
-                <td class="cell-time">{{ r.process_time or '—' }}</td>
+                <td class="batch-content-cell" data-label="消息内容">
+                    <details class="data-message-details">
+                        <summary>{{ r.content | truncate(140) }}</summary>
+                        <p>{{ r.content }}</p>
+                    </details>
+                </td>
+                <td class="batch-source-cell" data-label="来源 / 时间">
+                    <span>{{ r.source or '未填写来源' }}</span>
+                    <time>{{ r.publish_time or '未填写时间' }}</time>
+                </td>
+                <td class="batch-result-cell" data-label="检测结果">
+                    {% if r.risk_score %}
+                    {% set score = r.risk_score | float %}
+                    {% set level = 'high' if score >= 70 else ('medium' if score >= 40 else 'low') %}
+                    <span class="batch-result-badge risk-level-{{ level }}" title="{{ r.risk_model }} · {{ r.risk_reason }}">{{ r.risk_score }} / 100</span>
+                    {% else %}
+                    <span class="batch-result-empty">待检测</span>
+                    {% endif %}
+                </td>
+                <td class="batch-nature-cell" data-label="人工标签">
+                    <span class="nature nature-{{ nature_class.get(r.nature, 'unknown') }}">{{ r.nature or '未校验' }}</span>
+                </td>
             </tr>
             {% else %}
-            <tr><td colspan="7" class="empty">暂无消息</td></tr>
+            <tr>
+                <td colspan="4">
+                    <div class="data-table-empty">
+                        <span aria-hidden="true">▤</span>
+                        <h3>暂无消息</h3>
+                        <p>当前数据集中还没有可展示的消息。</p>
+                    </div>
+                </td>
+            </tr>
             {% endfor %}
         </tbody>
     </table>
@@ -37,58 +57,57 @@
 {% block title %}FakeNgin · 谣言数据展示{% endblock %}
 
 {% block content %}
-<div class="page-heading">
-    <div>
-        <p class="eyebrow">DATA</p>
-        <h1>谣言数据展示</h1>
-    </div>
-    <p>浏览消息数据，按关键词检索内容与来源。</p>
+<div class="data-workspace risk-workspace">
+    <header class="dash-hero dash-hero-compact">
+        <div>
+            <p class="dash-kicker"><span aria-hidden="true"></span> 01 / 数据展示</p>
+            <h1>整理消息，准备下一次检测。</h1>
+            <p>浏览消息原文与标签，按关键词检索内容与来源；检测与校验在对应模块中进行。</p>
+        </div>
+        <div class="dash-hero-aside"><span>数据集规模</span><strong>{{ total }}</strong><span>条消息</span></div>
+    </header>
+
+    <section class="panel">
+        <div class="panel-head">
+            <h2>消息搜索</h2>
+            <span class="panel-meta">输入关键词，展示最相关的 3 条消息</span>
+        </div>
+
+        <form class="search-bar" method="get" action="{{ url_for('main.data') }}">
+            <input type="text" name="q" value="{{ query }}" placeholder="输入关键词搜索消息">
+            <button type="submit" class="dash-button dash-button-small">搜索</button>
+        </form>
+
+        {% if query %}
+            {% if search_results %}
+                {{ messages_table(search_results, nature_class) }}
+            {% else %}
+            <p class="search-empty">暂无相关结果</p>
+            {% endif %}
+        {% endif %}
+    </section>
+
+    <section class="panel">
+        <div class="panel-head">
+            <h2>全部消息</h2>
+            <span class="panel-meta">共 {{ total }} 条 · 第 {{ page }} / {{ total_pages }} 页</span>
+        </div>
+
+        {{ messages_table(rows, nature_class) }}
+
+        <div class="pagination">
+            {% if page > 1 %}
+            <a class="btn btn-sm" href="{{ url_for('main.data', page=page-1, q=query or None) }}">上一页</a>
+            {% else %}
+            <span class="btn btn-sm btn-disabled">上一页</span>
+            {% endif %}
+            <span class="page-info">第 {{ page }} / {{ total_pages }} 页</span>
+            {% if page < total_pages %}
+            <a class="btn btn-sm" href="{{ url_for('main.data', page=page+1, q=query or None) }}">下一页</a>
+            {% else %}
+            <span class="btn btn-sm btn-disabled">下一页</span>
+            {% endif %}
+        </div>
+    </section>
 </div>
-
-<section class="panel">
-    <div class="panel-head">
-        <h2>消息搜索</h2>
-        <span class="panel-meta">输入关键词，展示最相关的 3 条消息</span>
-    </div>
-
-    <form class="search-bar" method="get" action="{{ url_for('main.data') }}">
-        <input type="text" name="q" value="{{ query }}" placeholder="输入关键词搜索消息">
-        <button type="submit" class="btn btn-primary">搜索</button>
-    </form>
-
-    {% if query %}
-        {% if search_results %}
-            {{ messages_table(search_results, nature_class) }}
-        {% else %}
-        <p class="search-empty">暂无相关结果</p>
-        {% endif %}
-    {% endif %}
-</section>
-
-<section class="panel">
-    <div class="panel-head">
-        <h2>全部消息</h2>
-        <span class="panel-meta">共 {{ total }} 条 · 第 {{ page }} / {{ total_pages }} 页</span>
-    </div>
-
-    {{ messages_table(rows, nature_class) }}
-
-    <div class="pagination">
-        {% if page > 1 %}
-        <a class="btn btn-sm" href="{{ url_for('main.data', page=page-1, q=query or None) }}">上一页</a>
-        {% else %}
-        <span class="btn btn-sm btn-disabled">上一页</span>
-        {% endif %}
-        <span class="page-info">第 {{ page }} / {{ total_pages }} 页</span>
-        {% if page < total_pages %}
-        <a class="btn btn-sm" href="{{ url_for('main.data', page=page+1, q=query or None) }}">下一页</a>
-        {% else %}
-        <span class="btn btn-sm btn-disabled">下一页</span>
-        {% endif %}
-    </div>
-</section>
-{% endblock %}
-
-{% block scripts %}
-<script src="{{ url_for('static', filename='js/data.js') }}"></script>
 {% endblock %}

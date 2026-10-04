@@ -5,14 +5,16 @@
 
 {% block content %}
 <div class="risk-workspace">
-    <header class="risk-page-heading">
+    <header class="dash-hero dash-hero-compact">
         <div>
-            <p class="risk-eyebrow">FAKENGIN / 文本风险分析</p>
-            <h1>风险检测工作台</h1>
-            <p class="risk-intro">选择一个模型进行单模型分析，选择多个模型进行投票；查看风险分、理由与结果。</p>
+            <p class="dash-kicker"><span aria-hidden="true"></span> 02 / 检测系统</p>
+            <h1>从消息原文，到完整的检测结果。</h1>
+            <p>选择一个模型进行单模型分析，选择多个模型进行投票；查看风险分、理由与结果。</p>
         </div>
-        <span class="risk-local-badge"><span aria-hidden="true">●</span> 本地模型推理</span>
+        <div class="dash-hero-aside"><span class="dash-hero-status"><i></i> 模型服务</span><strong>{{ available_models | length }}</strong><span>当前可用模型</span></div>
     </header>
+
+    <div class="workspace-section-title"><span class="section-number">01</span><h2>配置本次分析</h2><span class="section-line"></span><span>输入 · 选择 · 检测</span></div>
 
     <form id="detect-form" class="risk-form" method="post" action="{{ url_for('main.detect') }}"
           data-check-url="{{ url_for('main.detect_check') }}">
