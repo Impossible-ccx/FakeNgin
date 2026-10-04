@@ -3,18 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#10243d">
     <title>{% block title %}FakeNgin{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     {% block head %}{% endblock %}
 </head>
 <body>
+    {% set endpoint = request.endpoint or '' %}
     <header class="navbar">
         <div class="nav-inner">
-            <a class="brand" href="{{ url_for('main.index') }}">FakeNgin</a>
+            <a class="brand" href="{{ url_for('main.index') }}" aria-label="FakeNgin 首页">
+                <span class="brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 28 28" fill="none"><path d="M6 21V7h16M6 14h11" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/><circle cx="21" cy="21" r="3" fill="currentColor"/></svg>
+                </span>
+                <span class="brand-text">FakeNgin<small>信息风险分析</small></span>
+            </a>
             <nav class="nav-links">
-                <a href="{{ url_for('main.data') }}">谣言数据展示</a>
-                <a href="{{ url_for('main.detect') }}">谣言检测系统</a>
-                <a href="{{ url_for('main.verify') }}">人工校验系统</a>
+                <a href="{{ url_for('main.data') }}" {% if endpoint.startswith('main.data') %}class="is-current" aria-current="page"{% endif %}>谣言数据展示</a>
+                <a href="{{ url_for('main.detect') }}" {% if endpoint.startswith('main.detect') %}class="is-current" aria-current="page"{% endif %}>谣言检测系统</a>
+                <a href="{{ url_for('main.verify') }}" {% if endpoint.startswith('main.verify') %}class="is-current" aria-current="page"{% endif %}>人工校验系统</a>
             </nav>
             <div class="nav-account">
                 {% if current_user %}
@@ -41,7 +48,11 @@
     </main>
 
     <footer class="footer">
-        <span>FakeNgin · 谣言检测平台</span>
+        <div class="footer-left">
+            <span class="footer-brand">FakeNgin</span>
+            <span>谣言数据展示 · 谣言检测系统 · 人工校验系统</span>
+        </div>
+        <span>本地模型推理 · 消息与分析留存</span>
     </footer>
 
     {% block scripts %}{% endblock %}

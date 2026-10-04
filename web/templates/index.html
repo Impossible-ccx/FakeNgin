@@ -4,27 +4,59 @@
 
 {% block content %}
 <section class="hero">
-    <h1 class="hero-title">FakeNgin</h1>
-    <p class="hero-subtitle">
-        简介占位：此处将用于介绍 FakeNgin 谣言检测平台的目标、数据来源与核心能力。
-    </p>
-
-    <div class="cards">
-        <div class="card">
-            <h3>谣言数据展示</h3>
-            <p>浏览与检索已收集的谣言数据。</p>
-            <a class="btn btn-primary" href="{{ url_for('main.data') }}">进入</a>
+    <div class="hero-copy">
+        <p class="hero-eyebrow">FAKENGIN / 谣言检测平台</p>
+        <h1 class="hero-title">FakeNgin</h1>
+        <p class="hero-subtitle">
+            简介占位：此处将用于介绍 FakeNgin 谣言检测平台的目标、数据来源与核心能力。
+        </p>
+    </div>
+    <div class="hero-visual" aria-hidden="true">
+        <span class="hero-visual-label">检测流程</span>
+        <div class="hero-visual-input">
+            <span class="hero-visual-icon">文</span>
+            <div><strong>待检测消息</strong><span>输入文本内容</span></div>
         </div>
-        <div class="card">
-            <h3>谣言检测系统</h3>
-            <p>对文本进行自动谣言检测与分析。</p>
-            <a class="btn btn-primary" href="{{ url_for('main.detect') }}">进入</a>
+        <div class="hero-visual-link"></div>
+        <div class="hero-visual-models">
+            <div><span>模型</span><strong>Qwen</strong></div>
+            <div><span>模型</span><strong>DeepSeek</strong></div>
+            <div><span>模型</span><strong>GLM</strong></div>
         </div>
-        <div class="card">
-            <h3>人工校验系统</h3>
-            <p>对检测结果进行人工复核与标注。</p>
-            <a class="btn btn-primary" href="{{ url_for('main.verify') }}">进入</a>
+        <div class="hero-visual-result">
+            <div><span>风险结论</span><strong>综合模型判断</strong></div>
+            <span class="hero-visual-arrow">→</span>
         </div>
     </div>
 </section>
+
+<div class="cards">
+    <div class="card">
+        <div class="card-top">
+            <span class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 10h16M10 10v10"/></svg></span>
+            <span class="card-number">01</span>
+        </div>
+        <h3>谣言数据展示</h3>
+        <p>浏览与检索已收集的谣言数据。</p>
+        <a class="btn btn-primary" href="{{ url_for('main.data') }}">进入</a>
+    </div>
+    <div class="card">
+        <div class="card-top">
+            <span class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 16v-3m4 3V8m4 8v-5"/></svg></span>
+            <span class="card-number">02</span>
+        </div>
+        <h3>谣言检测系统</h3>
+        <p>对文本进行自动谣言检测与分析。</p>
+        <a class="btn btn-primary" href="{{ url_for('main.detect') }}">进入</a>
+    </div>
+    <div class="card">
+        <div class="card-top">
+            <span class="card-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z"/><path d="m8 12 3 3 5-6"/></svg></span>
+            <span class="card-number">03</span>
+        </div>
+        <h3>人工校验系统</h3>
+        <p>对检测结果进行人工复核与标注。</p>
+        <a class="btn btn-primary" href="{{ url_for('main.verify') }}">进入</a>
+    </div>
+</div>
 {% endblock %}
