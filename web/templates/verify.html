@@ -17,7 +17,7 @@
 {% block title %}FakeNgin · 人工校验{% endblock %}
 {% block content %}
 <div class="verify-workspace">
-    <header class="dash-hero dash-hero-compact"><div><p class="dash-kicker">MANUAL REVIEW / 人工校验</p><h1>逐条确认，整理消息标签。</h1><p>查看待校验消息，标注性质，维护数据内容。校验结果保存在当前数据集中。</p></div><div class="dash-hero-aside"><span>待校验消息</span><strong>{{ unverified_count | default(total) }}</strong><span>共 {{ total }} 条消息</span></div></header>
+    <header class="dash-hero dash-hero-compact"><div><p class="dash-kicker">03 / 人工校验</p><h1>逐条确认，整理消息标签。</h1><p>查看待校验消息，标注性质，维护数据内容。校验结果保存在当前数据集中。</p></div><div class="dash-hero-aside"><span>待校验消息</span><strong>{{ unverified_count | default(total) }}</strong><span>共 {{ total }} 条消息</span></div></header>
     <div class="workspace-section-title"><span class="section-number">01</span><h2>校验队列</h2><span class="section-line"></span><span>查看 · 判断 · 标注</span></div>
     <section class="verify-queue" data-check-state="{{ check_state }}" aria-labelledby="verify-queue-heading">
         <div class="verify-section-heading"><div><p class="dash-eyebrow">REVIEW QUEUE</p><h2 id="verify-queue-heading">{% if check_state == 'ready' %}当前待校验消息{% elif not total %}从第一条消息开始{% elif check_state == 'all_skipped' %}已暂时跳过所有待校验消息{% else %}当前消息已全部校验{% endif %}</h2></div>{% if skipped_count | default(0) %}<span class="verify-queue-count">已跳过 {{ skipped_count }} 条</span>{% endif %}</div>

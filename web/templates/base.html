@@ -7,6 +7,7 @@
     <title>{% block title %}FakeNgin{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modules.css') }}">
     {% block head %}{% endblock %}
 </head>
 <body class="app-shell">
@@ -18,11 +19,10 @@
                 <span>FakeNgin<small>信息风险分析</small></span>
             </a>
             <nav class="nav-links" aria-label="主导航">
-                <a href="{{ url_for('main.index') }}" {% if current_endpoint == 'main.index' %}class="is-current" aria-current="page"{% endif %}>概览</a>
-                <a href="{{ url_for('main.detect') }}" {% if current_endpoint.startswith('main.detect') %}class="is-current" aria-current="page"{% endif %}>检测工作台</a>
-                <a href="{{ url_for('main.history') }}" {% if current_endpoint in ['main.history', 'main.report'] %}class="is-current" aria-current="page"{% endif %}>历史记录</a>
-                <a href="{{ url_for('main.data') }}" {% if current_endpoint == 'main.data' %}class="is-current" aria-current="page"{% endif %}>数据浏览</a>
+                <a href="{{ url_for('main.data') }}" {% if current_endpoint.startswith('main.data') or current_endpoint.startswith('main.batch') %}class="is-current" aria-current="page"{% endif %}>数据展示</a>
+                <a href="{{ url_for('main.detect') }}" {% if current_endpoint.startswith('main.detect') or current_endpoint in ['main.history', 'main.report'] %}class="is-current" aria-current="page"{% endif %}>检测结果</a>
                 <a href="{{ url_for('main.verify') }}" {% if current_endpoint.startswith('main.verify') %}class="is-current" aria-current="page"{% endif %}>人工校验</a>
+                <a href="{{ url_for('main.search') }}" {% if current_endpoint == 'main.search' %}class="is-current" aria-current="page"{% endif %}>关键字搜索</a>
             </nav>
             <div class="nav-account">
                 <div class="nav-session">

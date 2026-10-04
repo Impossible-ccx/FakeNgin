@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 from . import auth, batches, db, newsdata
 from .models import model_label
+from .presentation import highlight_keyword
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WEB_DIR = PROJECT_ROOT / "web"
@@ -23,6 +24,7 @@ def create_app():
     )
     app.secret_key = SECRET_KEY
     app.add_template_filter(model_label, "model_label")
+    app.add_template_filter(highlight_keyword, "highlight_keyword")
 
     db.ensure_database()
     newsdata.ensure_newsdata()

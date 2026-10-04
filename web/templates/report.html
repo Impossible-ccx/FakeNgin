@@ -3,6 +3,7 @@
 {% block title %}FakeNgin · 检测报告{% endblock %}
 {% block content %}
 <div class="risk-workspace">
+    <nav class="module-subnav" aria-label="检测结果功能"><a href="{{ url_for('main.detect') }}">新建检测</a><a href="{{ url_for('main.history') }}">已保存的结果</a></nav>
     <a class="back-link" href="{{ url_for('main.history') }}"><span aria-hidden="true">←</span> 返回历史记录</a>
     {% if record %}
     <header class="dash-hero dash-hero-compact report-page-hero"><div><p class="dash-kicker">SAVED REPORT / 检测报告</p><h1>从原文，回看完整判断。</h1><p><time datetime="{{ record.created_at }}" data-local-time>{{ record.created_at }}</time><span class="meta-divider">/</span>{{ record.result.selected_count }} 个模型参与</p></div><a class="dash-button dash-button-light" href="{{ url_for('main.detect') }}">新建检测 <span aria-hidden="true">↗</span></a></header>

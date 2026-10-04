@@ -2,11 +2,11 @@
 {% from "_ui.html" import model_mark %}
 {% set nature_class = {'虚假':'fake','真实':'real','中立':'neutral','未校验':'unknown'} %}
 {% set available_models = models | selectattr('available') | list %}
-{% set display_rows = search_results if query else rows %}
-{% block title %}FakeNgin · 数据与批量检测{% endblock %}
+{% set display_rows = rows %}
+{% block title %}FakeNgin · 数据展示{% endblock %}
 {% block content %}
 <div class="data-workspace risk-workspace">
-    <header class="dash-hero dash-hero-compact"><div><p class="dash-kicker">DATA WORKSPACE / 数据与批量检测</p><h1>一批消息，逐条得到答案。</h1><p>导入和检索待分析的文本，挑选样本批量提交。完整的评分、理由与报告保存在历史记录。</p></div><div class="dash-hero-aside"><span>数据集规模</span><strong>{{ total }}</strong><span>条消息</span></div></header>
+    <header class="dash-hero dash-hero-compact"><div><p class="dash-kicker">01 / 数据展示</p><h1>整理消息，准备下一次检测。</h1><p>导入消息，浏览原文与标签，勾选样本批量提交。评分、理由与历史报告在检测结果模块中查看。</p></div><div class="dash-hero-aside"><span>数据集规模</span><strong>{{ total }}</strong><span>条消息</span></div></header>
     {% if data_error %}<div class="notice notice-error" role="alert">{{ data_error }}</div>{% endif %}
     {% if import_error %}<div class="notice notice-error" role="alert">导入失败：{{ import_error }}</div>{% endif %}
     {% if imported_count %}<div class="notice notice-success" role="status">已导入 {{ imported_count }} 条消息，可在下方勾选并开始检测。</div>{% endif %}
@@ -30,7 +30,7 @@
         </div>
     </details>
 
-    <section class="data-search-section"><div><p class="dash-eyebrow">SAMPLE LIBRARY</p><h2>选择需要检测的消息</h2></div><form class="data-search-form" method="get" action="{{ url_for('main.data') }}"><label class="visually-hidden" for="data-search">搜索消息</label><input id="data-search" type="text" name="q" value="{{ query }}" placeholder="输入关键词检索消息…"><button type="submit" class="dash-button dash-button-small">搜索</button>{% if query %}<a class="clear-query" href="{{ url_for('main.data') }}">清除</a>{% endif %}</form></section>
+    <section class="data-search-section"><div><p class="dash-eyebrow">SAMPLE LIBRARY</p><h2>选择需要检测的消息</h2></div><a class="dash-button dash-button-small" href="{{ url_for('main.search') }}">按关键字查找 <span aria-hidden="true">↗</span></a></section>
     <form id="data-batch-form" method="post" action="{{ url_for('main.batch_start') }}" data-max-rows="{{ batch_limits.max_batch_rows }}">
         <section class="batch-configuration">
             <div class="batch-config-heading"><span class="section-number">02</span><h2>设置这批消息的分析方式</h2><span>相同配置，逐条执行</span></div>
@@ -44,13 +44,13 @@
             </div>
         </section>
         <section class="batch-dataset">
-            <div class="batch-dataset-heading"><div><h2>{% if query %}搜索结果{% else %}全部消息{% endif %}</h2><p>{% if query %}与“{{ query }}”最相关的 {{ search_results | length }} 条消息{% else %}共 {{ total }} 条 · 第 {{ page }} / {{ total_pages }} 页{% endif %}</p></div><div class="batch-selection-tools"><button id="batch-select-page" type="button" class="risk-text-button" hidden>全选本页</button><button id="batch-clear-selection" type="button" class="risk-text-button" hidden>清空选择</button></div></div>
+            <div class="batch-dataset-heading"><div><h2>全部消息</h2><p>共 {{ total }} 条 · 第 {{ page }} / {{ total_pages }} 页</p></div><div class="batch-selection-tools"><button id="batch-select-page" type="button" class="risk-text-button" hidden>全选本页</button><button id="batch-clear-selection" type="button" class="risk-text-button" hidden>清空选择</button></div></div>
             <div class="table-wrap"><table class="msg-table batch-table"><thead><tr><th class="batch-check-cell"><span class="visually-hidden">选择消息</span></th><th>消息内容</th><th>来源</th><th>检测状态</th><th>数据集标签</th></tr></thead><tbody>
                 {% for r in display_rows %}
-                <tr><td class="batch-check-cell"><input type="checkbox" name="items" value="{{ {'file':r['_file'],'row':r['_row'],'signature':r['_signature']} | tojson | forceescape }}" data-file="{{ r['_file'] }}" data-row="{{ r['_row'] }}" data-signature="{{ r['_signature'] }}" aria-label="选择消息：{{ r.content | truncate(45) }}"></td><td class="batch-content-cell"><details class="data-message-details"><summary>{{ r.content | truncate(105) }}</summary><p>{{ r.content }}</p></details></td><td class="batch-source-cell">{{ r.source or '—' }}</td><td class="batch-result-cell" data-row-result>{% if r.latest_report %}<span class="batch-result-badge risk-level-{{ r.latest_report.level }}">{{ r.latest_report.label }}</span><a href="{{ r.latest_report.history_url }}">查看报告 <span aria-hidden="true">↗</span></a>{% else %}<span class="batch-result-empty">待检测</span>{% endif %}</td><td><span class="nature nature-{{ nature_class.get(r.nature,'unknown') }}">{{ '未标注' if r.nature == '未校验' else r.nature or '未标注' }}</span></td></tr>
-                {% else %}<tr><td colspan="5"><div class="data-table-empty"><span aria-hidden="true">▤</span><h3>{% if query %}暂时没有相关消息{% else %}先导入第一批消息{% endif %}</h3><p>{% if query %}换个关键词，或清除搜索后浏览全部消息。{% else %}使用上方 CSV 或多行文本导入，随后即可勾选批量检测。{% endif %}</p></div></td></tr>{% endfor %}
+                <tr id="dataset-row-{{ (page - 1) * 20 + loop.index0 }}"><td class="batch-check-cell"><input type="checkbox" name="items" value="{{ {'file':r['_file'],'row':r['_row'],'signature':r['_signature']} | tojson | forceescape }}" data-file="{{ r['_file'] }}" data-row="{{ r['_row'] }}" data-signature="{{ r['_signature'] }}" aria-label="选择消息：{{ r.content | truncate(45) }}"></td><td class="batch-content-cell"><details class="data-message-details"><summary>{{ r.content | truncate(105) }}</summary><p>{{ r.content }}</p></details></td><td class="batch-source-cell">{{ r.source or '—' }}</td><td class="batch-result-cell" data-row-result>{% if r.latest_report %}<span class="batch-result-badge risk-level-{{ r.latest_report.level }}">{{ r.latest_report.label }}</span><a href="{{ r.latest_report.history_url }}">查看报告 <span aria-hidden="true">↗</span></a>{% else %}<span class="batch-result-empty">待检测</span>{% endif %}</td><td><span class="nature nature-{{ nature_class.get(r.nature,'unknown') }}">{{ '未标注' if r.nature == '未校验' else r.nature or '未标注' }}</span></td></tr>
+                {% else %}<tr><td colspan="5"><div class="data-table-empty"><span aria-hidden="true">▤</span><h3>先导入第一批消息</h3><p>使用上方 CSV 或多行文本导入，随后即可勾选批量检测。</p></div></td></tr>{% endfor %}
             </tbody></table></div>
-            {% if not query %}<nav class="pagination" aria-label="消息分页">{% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('main.data',page=page-1) }}">上一页</a>{% else %}<span class="btn btn-sm btn-disabled">上一页</span>{% endif %}<span class="page-info">第 {{ page }} / {{ total_pages }} 页</span>{% if page < total_pages %}<a class="btn btn-sm" href="{{ url_for('main.data',page=page+1) }}">下一页</a>{% else %}<span class="btn btn-sm btn-disabled">下一页</span>{% endif %}</nav>{% endif %}
+            <nav class="pagination" aria-label="消息分页">{% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('main.data',page=page-1) }}">上一页</a>{% else %}<span class="btn btn-sm btn-disabled">上一页</span>{% endif %}<span class="page-info">第 {{ page }} / {{ total_pages }} 页</span>{% if page < total_pages %}<a class="btn btn-sm" href="{{ url_for('main.data',page=page+1) }}">下一页</a>{% else %}<span class="btn btn-sm btn-disabled">下一页</span>{% endif %}</nav>
         </section>
         <div class="batch-action-bar"><div><strong>已选 <span id="batch-selected-count">0</span> 条消息</strong><p>每批最多 {{ batch_limits.max_batch_rows }} 条 · 完整报告自动保存到历史记录</p></div><button id="batch-submit" type="submit" class="dash-button" {% if not available_models %}disabled{% endif %}><span>开始批量检测</span><span aria-hidden="true">↗</span></button></div>
         <p id="batch-status-message" class="batch-inline-status" role="status" aria-live="polite">{{ batch_error or '' }}</p>

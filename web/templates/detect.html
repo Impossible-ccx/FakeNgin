@@ -1,13 +1,14 @@
 {% extends "base.html" %}
 {% from "_ui.html" import model_mark %}
 {% set available_models = models | selectattr('available') | list %}
-{% block title %}FakeNgin · 检测工作台{% endblock %}
+{% block title %}FakeNgin · 检测结果{% endblock %}
 {% block content %}
 <div class="risk-workspace">
     <header class="dash-hero dash-hero-compact">
-        <div><p class="dash-kicker">ANALYSIS / 检测工作台</p><h1>让每个模型，说出它的判断。</h1><p>输入消息，选择分析方式。逐模型查看运行进度，生成完整检测报告。</p></div>
+        <div><p class="dash-kicker">02 / 服务器检测结果呈现</p><h1>从消息原文，到完整检测结果。</h1><p>提交消息后，实时查看服务器返回的模型进度、风险评分和判断理由。</p></div>
         <div class="dash-hero-aside"><span class="dash-hero-status"><i></i> 模型服务</span><strong><span id="risk-available-count">{{ available_models | length }}</span></strong><span>当前可用模型</span></div>
     </header>
+    <nav class="module-subnav" aria-label="检测结果功能"><a class="is-current" aria-current="page" href="{{ url_for('main.detect') }}">新建检测</a><a href="{{ url_for('main.history') }}">已保存的结果 <span aria-hidden="true">↗</span></a></nav>
     <div class="workspace-section-title"><span class="section-number">01</span><h2>配置本次分析</h2><span class="section-line"></span><span>输入 · 选择 · 检测</span></div>
     <form id="detect-form" class="risk-form" method="post" action="{{ url_for('main.detect') }}"
           data-check-url="{{ url_for('main.detect_check') }}" data-stream-url="{{ url_for('main.detect_stream') }}">

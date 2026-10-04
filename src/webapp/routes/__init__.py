@@ -8,4 +8,4 @@ from flask import Blueprint
 
 main = Blueprint("main", __name__)
 
-from . import account, data, detect, history, home, verify  # noqa: E402,F401
+from . import account, data, detect, history, home, search, verify  # noqa: E402,F401

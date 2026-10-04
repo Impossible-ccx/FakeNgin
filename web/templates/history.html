@@ -3,6 +3,7 @@
 {% block title %}FakeNgin · 历史记录{% endblock %}
 {% block content %}
 <div class="risk-workspace">
+    <nav class="module-subnav" aria-label="检测结果功能"><a href="{{ url_for('main.detect') }}">新建检测</a><a class="is-current" aria-current="page" href="{{ url_for('main.history') }}">已保存的结果</a></nav>
     <header class="dash-hero dash-hero-compact"><div><p class="dash-kicker">HISTORY / 分析档案</p><h1>每一次分析，都有迹可循。</h1><p>回看消息原文、模型判断与聚合过程，随时导出完整报告。</p></div><a class="dash-button dash-button-light" href="{{ url_for('main.detect') }}">新建检测 <span aria-hidden="true">＋</span></a></header>
     <section class="history-toolbar"><div><h2>检测记录 <span class="history-total">{{ total }}</span></h2><p>{% if query %}关键词“{{ query }}”的搜索结果{% else %}已保存的完整分析报告{% endif %}</p></div><form class="history-search" method="get" action="{{ url_for('main.history') }}"><label class="visually-hidden" for="history-query">搜索历史消息</label><input id="history-query" name="q" value="{{ query or '' }}" placeholder="搜索历史消息…"><button type="submit" class="dash-button dash-button-small">搜索</button>{% if query %}<a href="{{ url_for('main.history') }}" class="clear-query">清除</a>{% endif %}</form></section>
     {% if error %}

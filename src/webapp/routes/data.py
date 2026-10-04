@@ -18,8 +18,6 @@ def _context():
     page = request.args.get("page", 1, type=int)
     if page < 1:
         page = 1
-    query = request.args.get("q", "").strip()
-
     message_table = newsdata.load_all()
     total = len(message_table)
     total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
@@ -28,11 +26,10 @@ def _context():
 
     start = (page - 1) * PAGE_SIZE
     rows = message_table.iloc[start:start + PAGE_SIZE].to_dict("records")
-    search_results = newsdata.search_messages(query, limit=3) if query else []
     references = [{"file": row["_file"], "row": int(row["_row"]), "signature": row["_signature"]}
-                  for row in rows + search_results]
+                  for row in rows]
     latest = batches.latest_reports(references)
-    for row in rows + search_results:
+    for row in rows:
         row["latest_report"] = latest.get((row["_file"], int(row["_row"]), row["_signature"]))
     recent_jobs = batches.list_batches(limit=5)
     requested_job = request.args.get("job", "")
@@ -45,8 +42,6 @@ def _context():
     mode = "vote" if len(selected_ids) > 1 else "single"
     return dict(
         rows=rows,
-        query=query,
-        search_results=search_results,
         page=page,
         total=total,
         total_pages=total_pages,
@@ -79,6 +74,9 @@ def _error(message, status=400):
 
 @main.route("/data")
 def data():
+    query = request.args.get("q", "").strip()
+    if query:
+        return redirect(url_for("main.search", q=query))
     return render_template("data.html", **_context())
 
 
