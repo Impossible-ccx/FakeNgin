@@ -3,48 +3,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#10243d">
     <title>{% block title %}FakeNgin{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modules.css') }}">
     {% block head %}{% endblock %}
 </head>
-<body>
+<body class="app-shell">
+    {% set current_endpoint = request.endpoint or '' %}
     <header class="navbar">
         <div class="nav-inner">
-            <a class="brand" href="{{ url_for('main.index') }}">FakeNgin</a>
-            <nav class="nav-links">
-                <a href="{{ url_for('main.data') }}">谣言数据展示</a>
-                <a href="{{ url_for('main.detect') }}">谣言检测系统</a>
-                <a href="{{ url_for('main.verify') }}">人工校验系统</a>
-                <a href="{{ url_for('main.search') }}">关键字搜索</a>
+            <a class="brand" href="{{ url_for('main.index') }}" aria-label="FakeNgin 首页">
+                <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 28 28" fill="none"><path d="M6 21V7h16M6 14h11" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/><circle cx="21" cy="21" r="3" fill="currentColor"/></svg></span>
+                <span>FakeNgin<small>信息风险分析</small></span>
+            </a>
+            <nav class="nav-links" aria-label="主导航">
+                <a href="{{ url_for('main.data') }}" {% if current_endpoint.startswith('main.data') or current_endpoint.startswith('main.batch') %}class="is-current" aria-current="page"{% endif %}>数据展示</a>
+                <a href="{{ url_for('main.detect') }}" {% if current_endpoint.startswith('main.detect') or current_endpoint in ['main.history', 'main.report'] %}class="is-current" aria-current="page"{% endif %}>检测结果</a>
+                <a href="{{ url_for('main.verify') }}" {% if current_endpoint.startswith('main.verify') %}class="is-current" aria-current="page"{% endif %}>人工校验</a>
+                <a href="{{ url_for('main.search') }}" {% if current_endpoint == 'main.search' %}class="is-current" aria-current="page"{% endif %}>关键字搜索</a>
             </nav>
             <div class="nav-account">
+                <div class="nav-session">
                 {% if current_user %}
-                    <span class="user-name">{{ current_user.username }}</span>
-                    <a class="btn btn-ghost btn-sm" href="{{ url_for('main.logout') }}">登出</a>
+                <span class="user-name">{{ current_user.username }}</span><a class="account-link" href="{{ url_for('main.logout') }}">退出</a>
                 {% else %}
-                    <a class="btn btn-ghost btn-sm" href="{{ url_for('main.login') }}">登录</a>
+                <a class="account-link" href="{{ url_for('main.login') }}">账户登录 <span aria-hidden="true">↗</span></a>
                 {% endif %}
+                </div>
             </div>
         </div>
     </header>
-
     <main class="page">
         {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-            <div class="notices">
-                {% for category, message in messages %}
-                <div class="notice notice-{{ category }}">{{ message }}</div>
-                {% endfor %}
-            </div>
-            {% endif %}
+            {% if messages %}<div class="notices">{% for category, message in messages %}<div class="notice notice-{{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}
         {% endwith %}
         {% block content %}{% endblock %}
     </main>
-
-    <footer class="footer">
-        <span>FakeNgin · 谣言检测平台</span>
-    </footer>
-
+    <footer class="footer"><div><span class="footer-brand">FakeNgin</span><span>数据 · 检测 · 校验 · 搜索</span></div><span>消息与分析，完整留存。</span></footer>
+    <script src="{{ url_for('static', filename='js/report.js') }}" defer></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>
