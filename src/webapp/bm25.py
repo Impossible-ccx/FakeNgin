@@ -25,7 +25,7 @@ from .db import DATABASE_DIR
 
 SEARCH_INDEX_DIR = DATABASE_DIR / "searchindex"
 
-INDEX_VERSION = 2
+INDEX_VERSION = 3
 BM25_K1 = 1.5
 BM25_B = 0.75
 
@@ -127,8 +127,8 @@ def _as_int(value, default=0):
 def _tokenize(text):
     """jieba 搜索引擎模式分词，过滤空白与纯标点，ASCII 统一小写。"""
     tokens = []
-    for token in jieba.cut_for_search(str(text).casefold()):
-        token = token.strip().casefold()
+    for token in jieba.cut_for_search(str(text)):
+        token = token.strip().lower()
         if token and any(ch.isalnum() for ch in token):
             tokens.append(token)
     return tokens
@@ -142,10 +142,6 @@ def _query_tokens(query):
 def _content_fingerprint(contents):
     raw = "\x1f".join(str(content) for content in contents)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
-
-
-def _search_texts(table):
-    return (str(content) + " " + str(source) for content, source in zip(table["content"], table["source"]))
 
 
 def _stat_values(stat):
@@ -176,7 +172,7 @@ def _build_file_index(name, table, fingerprint, stat):
     term_df = defaultdict(int)
     lengths = []
 
-    for doc_id, content in enumerate(_search_texts(table)):
+    for doc_id, content in enumerate(table["content"]):
         tokens = _tokenize(content)
         lengths.append(len(tokens))
         tf = defaultdict(int)
@@ -339,7 +335,7 @@ def _build_snapshot():
             continue
 
         table = newsdata.read_table(name)
-        fingerprint = _content_fingerprint(_search_texts(table))
+        fingerprint = _content_fingerprint(table["content"])
         if version_ok and meta.get("fingerprint") == fingerprint:
             _update_file_meta_stat(name, meta, stat)
         else:
@@ -393,7 +389,7 @@ def _build_snapshot():
 
 def ranked_references(query):
     """返回全部匹配的文件/行号，复用原 BM25 索引并缓存查询排序。"""
-    query = str(query).strip().casefold()
+    query = str(query)
     tokens = _query_tokens(query)
     if not tokens:
         return []

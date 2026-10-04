@@ -14,7 +14,7 @@
             <li><span class="module-map-number">01</span><div><strong>数据展示</strong><span>消息数据 · 导入 · 批量检测</span></div><span aria-hidden="true">↗</span></li>
             <li><span class="module-map-number">02</span><div><strong>检测结果呈现</strong><span>实时进度 · 模型判断 · 历史报告</span></div><span aria-hidden="true">↗</span></li>
             <li><span class="module-map-number">03</span><div><strong>人工校验</strong><span>真实性标注 · 数据维护</span></div><span aria-hidden="true">↗</span></li>
-            <li><span class="module-map-number">04</span><div><strong>关键字搜索</strong><span>内容与来源检索 · 消息定位</span></div><span aria-hidden="true">↗</span></li>
+            <li><span class="module-map-number">04</span><div><strong>关键字搜索</strong><span>正文相关性检索 · 消息定位</span></div><span aria-hidden="true">↗</span></li>
         </ol>
     </div>
 </section>
@@ -24,7 +24,7 @@
         <a class="tool-card tool-card-primary" href="{{ url_for('main.data') }}"><div class="tool-card-top"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 10h16M10 10v10"/></svg></span><span>01 / DATA</span></div><h3>数据展示</h3><p>浏览消息内容、来源与标注。导入 CSV 或文本，选择需要分析的消息，发起批量检测。</p><span class="tool-link">进入数据展示 <b aria-hidden="true">↗</b></span></a>
         <a class="tool-card" href="{{ url_for('main.detect') }}"><div class="tool-card-top"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 16v-3m4 3V8m4 8v-5"/></svg></span><span>02 / RESULTS</span></div><h3>检测结果</h3><span class="module-card-caption">服务器检测结果呈现模块</span><p>提交消息，逐模型查看分析进度、风险评分和判断理由。已完成的检测保存在历史报告中。</p><span class="tool-link">查看进度与结果 <b aria-hidden="true">↗</b></span></a>
         <a class="tool-card" href="{{ url_for('main.verify') }}"><div class="tool-card-top"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z"/><path d="m8 12 3 3 5-6"/></svg></span><span>03 / VERIFY</span></div><h3>人工校验</h3><p>登录后逐条标注真实、虚假或中立，跳过待定消息，并添加、编辑或删除数据集中的内容。</p><span class="tool-link">进入校验工作台 <b aria-hidden="true">↗</b></span></a>
-        <a class="tool-card" href="{{ url_for('main.search') }}"><div class="tool-card-top"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg></span><span>04 / SEARCH</span></div><h3>关键字搜索</h3><p>按消息内容或来源查找数据，高亮匹配关键字。定位原始消息，查看它已有的检测报告。</p><span class="tool-link">开始关键字搜索 <b aria-hidden="true">↗</b></span></a>
+        <a class="tool-card" href="{{ url_for('main.search') }}"><div class="tool-card-top"><span class="tool-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg></span><span>04 / SEARCH</span></div><h3>关键字搜索</h3><p>根据正文关键字查找相关消息，高亮匹配文字。定位原始消息，查看它已有的检测报告。</p><span class="tool-link">开始关键字搜索 <b aria-hidden="true">↗</b></span></a>
     </div>
 </section>
 {% endblock %}

@@ -3,26 +3,18 @@
 {% block title %}FakeNgin · 关键字搜索{% endblock %}
 {% block content %}
 <div class="keyword-workspace">
-    <header class="dash-hero dash-hero-compact keyword-hero"><div><p class="dash-kicker">04 / 关键字搜索</p><h1>从一条线索，找到相关消息。</h1><p>搜索消息内容和来源，展开原文，查看已有报告，并进入人工校验。</p></div><span class="keyword-hero-icon" aria-hidden="true"><svg viewBox="0 0 56 56" fill="none"><circle cx="23" cy="23" r="15"/><path d="m35 35 13 13M16 23h14m-14-6h9"/></svg></span></header>
+    <header class="dash-hero dash-hero-compact keyword-hero"><div><p class="dash-kicker">04 / 关键字搜索</p><h1>从一条线索，找到相关消息。</h1><p>搜索消息正文，展开原文，查看已有报告，并进入人工校验。</p></div><span class="keyword-hero-icon" aria-hidden="true"><svg viewBox="0 0 56 56" fill="none"><circle cx="23" cy="23" r="15"/><path d="m35 35 13 13M16 23h14m-14-6h9"/></svg></span></header>
     <section class="keyword-search-panel" aria-labelledby="keyword-form-title">
-        <div class="keyword-form-heading"><div><p class="dash-eyebrow">FIND A MESSAGE</p><h2 id="keyword-form-title">输入需要查找的关键字</h2></div><span>内容 + 来源</span></div>
+        <div class="keyword-form-heading"><div><p class="dash-eyebrow">FIND A MESSAGE</p><h2 id="keyword-form-title">输入需要查找的关键字</h2></div><span>消息正文</span></div>
         <form class="keyword-search-form" method="get" action="{{ url_for('main.search') }}" role="search">
-            <label class="visually-hidden" for="keyword-query">消息内容或来源</label>
-            <div class="keyword-input-wrap"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input id="keyword-query" type="search" name="q" value="{{ query }}" maxlength="{{ max_query_length }}" placeholder="例如：食品安全、地点或消息来源" aria-describedby="keyword-search-help" required></div>
-            <label class="keyword-search-mode" for="keyword-mode"><span class="visually-hidden">查找方式</span><select id="keyword-mode" name="mode"><option value="related" {% if mode == 'related' %}selected{% endif %}>相关消息</option><option value="literal" {% if mode == 'literal' %}selected{% endif %}>原文匹配</option></select></label>
+            <label class="visually-hidden" for="keyword-query">消息正文关键字</label>
+            <div class="keyword-input-wrap"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input id="keyword-query" type="search" name="q" value="{{ query }}" maxlength="{{ max_query_length }}" placeholder="例如：食品安全、地点或事件" aria-describedby="keyword-search-help" required></div>
             <button class="dash-button" type="submit">搜索消息 <span aria-hidden="true">→</span></button>
             {% if query %}<a class="keyword-clear" href="{{ url_for('main.search') }}">清除</a>{% endif %}
         </form>
-        <p class="keyword-search-help" id="keyword-search-help">相关消息按匹配程度排列；原文匹配查找内容或来源中的完整关键字，英文不区分大小写。</p>
+        <p class="keyword-search-help" id="keyword-search-help">根据正文关键字查找相关消息，按匹配程度排列。</p>
     </section>
     {% if error %}<div class="notice notice-error keyword-error" role="alert">{{ error }}</div>{% endif %}
-    {% if not error %}
-    <section class="keyword-cloud-panel" aria-labelledby="keyword-cloud-heading">
-        <div class="keyword-cloud-heading"><h2 id="keyword-cloud-heading">数据集关键词</h2><span>{{ keyword_sample_count }} 条消息参与统计</span></div>
-        {% if keywords %}<p>点击关键词，查找对应消息。按数据集前 {{ keyword_sample_count }} 条正文中的出现次数排列。</p><div class="keyword-cloud" aria-label="按词频排列的可点击关键词">{% for keyword in keywords %}<a class="keyword-cloud-word keyword-weight-{{ keyword.weight }}" href="{{ url_for('main.search', q=keyword.text, mode=mode) }}" aria-label="搜索 {{ keyword.text }}，出现 {{ keyword.count }} 次"><span>{{ keyword.text }}</span><small>{{ keyword.count }}</small></a>{% endfor %}</div>
-        {% else %}<p class="keyword-cloud-empty">{% if keyword_sample_count %}正文暂时没有可展示的关键词，可以直接使用上方搜索框。{% else %}数据集中有消息后，会在这里展示正文中的关键词和出现次数。{% endif %}</p>{% endif %}
-    </section>
-    {% endif %}
     {% if query and not error %}
     <section class="keyword-results" aria-labelledby="keyword-results-title">
         <div class="keyword-results-heading"><div><p class="dash-eyebrow">SEARCH RESULTS</p><h2 id="keyword-results-title">找到 <strong>{{ total_matches }}</strong> 条匹配消息</h2><p>关键字：<span class="keyword-query-label">{{ query }}</span></p></div>{% if rows %}<span>第 {{ page }} / {{ total_pages }} 页</span>{% endif %}</div>
@@ -31,12 +23,12 @@
             <article class="keyword-result-card">
                 <div class="keyword-result-meta"><span class="keyword-result-number">{{ (page - 1) * 20 + loop.index }}</span><span class="nature nature-{{ nature_class.get(row.nature, 'unknown') }}">{{ row.nature or '未校验' }}</span>{% if row.latest_report %}<span class="keyword-report-badge risk-level-{{ row.latest_report.level }}">{{ row.latest_report.label }}</span>{% else %}<span class="keyword-not-detected">待检测</span>{% endif %}<time>{{ row.publish_time or '未填写时间' }}</time></div>
                 <details class="keyword-result-content"><summary>{{ row.content | truncate(160) | highlight_keyword(query) }}</summary><p>{{ row.content | highlight_keyword(query) }}</p></details>
-                <div class="keyword-result-footer"><p><span>来源</span><strong>{{ (row.source or '未填写') | highlight_keyword(query) }}</strong></p><div class="keyword-result-links">{% if row.latest_report %}<a href="{{ url_for('main.report', report_id=row.latest_report.id) }}">查看检测报告 <span aria-hidden="true">↗</span></a>{% endif %}<a href="{{ url_for('main.data', page=row.dataset_page) }}#{{ row.dataset_anchor }}">定位原文 <span aria-hidden="true">↗</span></a><a href="{{ url_for('main.verify', file=row['_file'], row=row['_row'], signature=row['_signature']) }}">进入人工校验 <span aria-hidden="true">↗</span></a></div></div>
+                <div class="keyword-result-footer"><p><span>来源</span><strong>{{ row.source or '未填写' }}</strong></p><div class="keyword-result-links">{% if row.latest_report %}<a href="{{ url_for('main.report', report_id=row.latest_report.id) }}">查看检测报告 <span aria-hidden="true">↗</span></a>{% endif %}<a href="{{ url_for('main.data', page=row.dataset_page) }}#{{ row.dataset_anchor }}">定位原文 <span aria-hidden="true">↗</span></a><a href="{{ url_for('main.verify', file=row['_file'], row=row['_row'], signature=row['_signature']) }}">进入人工校验 <span aria-hidden="true">↗</span></a></div></div>
             </article>
         {% else %}<div class="keyword-empty"><span class="keyword-empty-icon" aria-hidden="true">⌕</span><h3>暂时没有匹配的消息</h3><p>试试更短的关键字，或查看数据集中已有的消息。</p><a class="keyword-text-link" href="{{ url_for('main.data') }}">前往数据展示 <span aria-hidden="true">→</span></a></div>{% endfor %}
         </div>
-        {% if total_pages > 1 %}<nav class="pagination" aria-label="搜索结果分页">{% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('main.search', q=query, mode=mode, page=page-1) }}">上一页</a>{% else %}<span class="btn btn-sm btn-disabled">上一页</span>{% endif %}<span class="page-info">第 {{ page }} / {{ total_pages }} 页</span>{% if page < total_pages %}<a class="btn btn-sm" href="{{ url_for('main.search', q=query, mode=mode, page=page+1) }}">下一页</a>{% else %}<span class="btn btn-sm btn-disabled">下一页</span>{% endif %}</nav>{% endif %}
+        {% if total_pages > 1 %}<nav class="pagination" aria-label="搜索结果分页">{% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('main.search', q=query, page=page-1) }}">上一页</a>{% else %}<span class="btn btn-sm btn-disabled">上一页</span>{% endif %}<span class="page-info">第 {{ page }} / {{ total_pages }} 页</span>{% if page < total_pages %}<a class="btn btn-sm" href="{{ url_for('main.search', q=query, page=page+1) }}">下一页</a>{% else %}<span class="btn btn-sm btn-disabled">下一页</span>{% endif %}</nav>{% endif %}
     </section>
-    {% elif not error %}<section class="keyword-empty keyword-empty-initial"><span class="keyword-empty-icon" aria-hidden="true">⌕</span><h2>用关键字缩小查找范围</h2><p>输入消息里的一段文字、地点或来源，也可以点击上方关键词。匹配结果会显示原文、人工标签和已有检测报告。</p><div class="keyword-purpose"><span>查找消息</span><span>定位原始数据</span><span>回看已有报告</span></div></section>{% endif %}
+    {% elif not error %}<section class="keyword-empty keyword-empty-initial"><span class="keyword-empty-icon" aria-hidden="true">⌕</span><h2>用关键字缩小查找范围</h2><p>输入正文中的关键字、地点或事件。匹配结果会显示原文、人工标签和已有检测报告。</p><div class="keyword-purpose"><span>查找消息</span><span>定位原始数据</span><span>回看已有报告</span></div></section>{% endif %}
 </div>
 {% endblock %}

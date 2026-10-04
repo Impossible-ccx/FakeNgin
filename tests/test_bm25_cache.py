@@ -65,7 +65,7 @@ class BM25CacheTests(unittest.TestCase):
             reads_after_first = read.call_count
             tokens_after_first = tokenize.call_count
             disk_after_first = self.index_snapshot()
-            repeated = bm25.search(" APPLE ")
+            repeated = bm25.search("apple")
             self.assertEqual((read.call_count, tokenize.call_count), (reads_after_first, tokens_after_first))
             other_query = bm25.search("banana")
             self.assertEqual(read.call_count, reads_after_first)
@@ -85,8 +85,8 @@ class BM25CacheTests(unittest.TestCase):
             self.seed(contents=("pear",))
             self.assertEqual(bm25.search("pear")[0]["content"], "pear")
             tokenized = [call.args[0] for call in tokenize.call_args_list]
-            self.assertIn("pear ", tokenized)
-            self.assertNotIn("banana ", tokenized)
+            self.assertEqual(tokenized.count("pear"), 2)  # One query and one changed document.
+            self.assertNotIn("banana", tokenized)
             self.assertEqual(bm25.search("apple"), [])
             updated_index = self.index_snapshot()
         for path, value in original_index.items():
@@ -94,26 +94,30 @@ class BM25CacheTests(unittest.TestCase):
                 self.assertEqual(updated_index[path], value)
         self.assertNotEqual(updated_index["sample.csv/postings.csv"], original_index["sample.csv/postings.csv"])
 
-    def test_source_change_reindexes_affected_table_and_is_searchable(self):
+    def test_source_change_updates_metadata_without_becoming_searchable(self):
         self.seed(contents=("unrelated content",), source="provider_alpha")
         self.seed("other.csv", ("stable document",), source="stable_provider")
         with self.split_words() as tokenize:
-            self.assertEqual(bm25.search("provider_alpha")[0]["source"], "provider_alpha")
+            self.assertEqual(bm25.search("unrelated")[0]["source"], "provider_alpha")
+            self.assertEqual(bm25.search("provider_alpha"), [])
             baseline = self.index_snapshot()
             tokenize.reset_mock()
             table = newsdata.read_table("sample.csv")
             table.loc[0, "source"] = "provider_beta"
             newsdata.write_table("sample.csv", table)
-            changed = bm25.search("provider_beta")
+            changed = bm25.search("unrelated")
             self.assertEqual(changed[0]["source"], "provider_beta")
+            tokenize.assert_not_called()
+            self.assertEqual(bm25.search("provider_beta"), [])
             self.assertEqual(bm25.search("provider_alpha"), [])
             texts = [call.args[0] for call in tokenize.call_args_list]
-            self.assertIn("unrelated content provider_beta", texts)
-            self.assertNotIn("stable document stable_provider", texts)
+            self.assertEqual(texts, ["provider_beta"])
             current = self.index_snapshot()
         for path, value in baseline.items():
             if path.startswith("other.csv/"):
                 self.assertEqual(current[path], value)
+        for name in ("sample.csv/postings.csv", "sample.csv/doc_lengths.csv", "sample.csv/terms.csv", "terms.csv"):
+            self.assertEqual(current[name], baseline[name])
 
     def test_label_change_returns_new_record_without_document_retokenization(self):
         self.seed(contents=("apple",), nature="未校验")
@@ -224,8 +228,8 @@ class BM25CacheTests(unittest.TestCase):
             with ThreadPoolExecutor(max_workers=8) as pool:
                 self.assertEqual(list(pool.map(browse, range(8))), ["apple apple"] * 8)
             texts = [call.args[0] for call in tokenize.call_args_list]
-            self.assertEqual(texts.count("apple apple "), 1)
-            self.assertEqual(texts.count("banana "), 1)
+            self.assertEqual(texts.count("apple apple"), 1)
+            self.assertEqual(texts.count("banana"), 1)
             self.assertEqual(bm25.search("apple")[0]["nature"], "未校验")
 
     def test_returned_reference_list_and_records_do_not_mutate_query_cache(self):
@@ -239,10 +243,29 @@ class BM25CacheTests(unittest.TestCase):
             self.assertEqual(bm25.ranked_references("apple"), [("sample.csv", 0), ("sample.csv", 1)])
             self.assertEqual([row["content"] for row in bm25.search("apple")], ["apple", "apple"])
 
-    def test_unicode_casefold_matches_real_jieba_segmentation(self):
+    def test_unicode_matching_keeps_main_segmentation_then_lower_behavior(self):
         self.seed(contents=("Straße 科学", "NASA 科技"), source="机构甲")
-        self.assertEqual(bm25.search("STRASSE")[0]["content"], "Straße 科学")
+        self.assertEqual(bm25.search("STRASSE"), [])
+        self.assertEqual(bm25.search("Straße")[0]["content"], "Straße 科学")
         self.assertEqual(bm25.search("nasa")[0]["content"], "NASA 科技")
+
+    def test_previous_body_and_source_index_is_rebuilt_on_version_upgrade(self):
+        self.seed(contents=("apple",), source="provider")
+        table = newsdata.read_table("sample.csv")
+        # Reproduce the previous schema's source token without altering the source CSV.
+        previous_table = table.copy(deep=True)
+        previous_table.loc[0, "content"] = "apple provider"
+        with self.split_words() as tokenize:
+            with patch.object(bm25, "INDEX_VERSION", 2):
+                bm25._build_file_index("sample.csv", previous_table, "previous-body-source", (self.data_dir / "sample.csv").stat())
+            tokenize.reset_mock()
+            self.assertEqual(bm25.search("provider"), [])
+            self.assertEqual(bm25.search("apple")[0]["content"], "apple")
+            texts = [call.args[0] for call in tokenize.call_args_list]
+            self.assertEqual(texts.count("apple provider"), 0)
+            self.assertEqual(texts.count("apple"), 2)  # New document and query.
+        meta = pd.read_csv(self.index_dir / "sample.csv" / "meta.csv")
+        self.assertEqual(int(meta.loc[0, "version"]), bm25.INDEX_VERSION)
 
     def test_partial_global_write_recovers_without_losing_new_messages(self):
         for target in (bm25.GLOBAL_META_FILE, bm25.GLOBAL_TERMS_FILE):

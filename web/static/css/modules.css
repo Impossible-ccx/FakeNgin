@@ -38,8 +38,6 @@
 .keyword-input-wrap input:focus { outline:0; }
 .keyword-input-wrap input::placeholder { color:#99a9ba; }
 .keyword-search-form .dash-button { flex-shrink:0; min-height:47px; }
-.keyword-search-mode { display:block; flex-shrink:0; }
-.keyword-search-mode select { height:47px; max-width:170px; padding:0 12px; border:1px solid #d7e3f0; border-radius:9px; background:#fafcfe; color:var(--dash-ink); font:inherit; font-size:14px; }
 .keyword-clear { padding:7px 0 7px 4px; color:#7d91aa; font-size:12px; white-space:nowrap; }
 .keyword-search-help { margin:14px 0 0; color:#8c9db2; font-size:12px; line-height:1.8; }
 .keyword-error { margin-top:18px; }
@@ -105,16 +103,6 @@
 .verify-focus-message { margin:0 0 15px; padding:11px 14px; border:1px solid #cbe1da; border-radius:8px; background:#f1f9f6; color:#558579; font-size:13px; }
 .verify-model-summary { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-top:13px; color:#7c92a8; font-size:13px; }
 .verify-model-summary a { color:#497fb1; }
-.keyword-cloud-panel { border:1px solid #dce5ef; border-radius:15px; background:#fff; padding:24px 28px; margin:22px 0; }
-.keyword-cloud-heading { display:flex; align-items:center; justify-content:space-between; gap:18px; }
-.keyword-cloud-heading h2 { margin:0; font-size:18px; }
-.keyword-cloud-heading > span { color:#8497ac; font-size:12px; }
-.keyword-cloud-panel > p { margin:11px 0 0; color:#8597ab; font-size:13px; }
-.keyword-cloud { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:18px; }
-.keyword-cloud-word { display:inline-flex; align-items:baseline; gap:8px; max-width:100%; padding:7px 11px; border:1px solid #dbe7ee; border-radius:8px; background:#f5fafb; color:#356c75; overflow-wrap:anywhere; }
-.keyword-cloud-word:hover { border-color:#9fc8c9; background:#ebf6f6; }
-.keyword-cloud-word small { color:#62788e; font-size:12px; }
-.keyword-weight-1 { font-size:14px; }.keyword-weight-2 { font-size:16px; }.keyword-weight-3 { font-size:18px; }.keyword-weight-4 { font-size:21px; }.keyword-weight-5 { font-size:24px; }
 .keyword-result-meta time { margin-left:auto; color:#62788e; font-size:12px; }
 .keyword-result-links { flex-wrap:wrap; gap:13px; }
 .keyword-result-links a { font-size:13px; }
@@ -165,9 +153,6 @@
     .dash-hero h1 { font-size:24px; }
     .dash-hero > div > p:not(.dash-kicker) { font-size:14px; }
     .risk-member-reason,.verify-record-text,.keyword-result-content { font-size:14px; }
-    .keyword-cloud-panel { padding:22px 19px; }
-    .keyword-cloud-heading { align-items:flex-start; flex-direction:column; gap:8px; }
-    .keyword-weight-5 { font-size:21px; }
     .module-map li { gap:10px; padding:12px 10px; }
     .module-map strong { font-size:14px; }
     .module-map li > div > span { font-size:12px; }
@@ -183,8 +168,6 @@
     .keyword-input-wrap { flex-basis:100%; padding:0 11px; gap:9px; }
     .keyword-input-wrap input { font-size:12px; }
     .keyword-search-form .dash-button { flex:1; justify-content:space-between; min-height:42px; white-space:nowrap; }
-    .keyword-search-mode { flex:1 0 100%; min-width:0; }
-    .keyword-search-mode select { width:100%; height:42px; max-width:none; }
     .keyword-clear { align-self:center; padding:8px; }
     .keyword-search-help { font-size:12px; }
     .keyword-results-heading { align-items:flex-start; flex-direction:column; gap:9px; }
