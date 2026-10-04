@@ -22,9 +22,13 @@ def create_app():
     from .presentation import highlight_keyword
 
     app.jinja_env.filters["highlight_keyword"] = highlight_keyword
+    from .models import model_label
+    app.jinja_env.filters["model_label"] = model_label
 
     db.ensure_database()
     newsdata.ensure_newsdata()
+    from . import batches
+    batches.initialize()
 
     from .routes import main
     from .routes import history  # noqa: F401; registers the report routes

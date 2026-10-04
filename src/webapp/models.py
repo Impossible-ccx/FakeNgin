@@ -15,3 +15,9 @@ def list_web_models():
     return [{**model, "display_name": model_label(model["id"]),
              "description": "独立分析消息，给出风险评分和判断理由。"}
             for model in get_risk_models()]
+
+
+def validate_web_source(source=None):
+    if source not in (None, "local"):
+        raise ValueError("请选择当前网站支持的本地检测服务")
+    return "local"

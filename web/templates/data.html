@@ -1,66 +1,62 @@
 {% extends "base.html" %}
-{% set nature_class = {'虚假': 'fake', '真实': 'real', '中立': 'neutral', '未校验': 'unknown'} %}
-
-{% block title %}FakeNgin · 谣言数据展示{% endblock %}
-
+{% from "_ui.html" import model_mark %}
+{% set nature_class = {'虚假':'fake','真实':'real','中立':'neutral','未校验':'unknown'} %}
+{% set available_models = models | selectattr('available') | list %}
+{% set display_rows = rows %}
+{% block title %}FakeNgin · 数据展示{% endblock %}
 {% block content %}
-<section class="panel">
-    <div class="panel-head">
-        <h2>数据展示</h2>
-        <a class="btn btn-sm" href="{{ url_for('main.search') }}">前往关键字搜索 →</a>
-    </div>
+<div class="data-workspace risk-workspace">
+    <header class="dash-hero dash-hero-compact"><div><p class="dash-kicker">01 / 数据展示</p><h1>整理消息，准备下一次检测。</h1><p>导入消息，浏览原文与标签，勾选样本批量提交。评分、理由与历史报告在检测结果模块中查看。</p></div><div class="dash-hero-aside"><span>数据集规模</span><strong>{{ total }}</strong><span>条消息</span></div></header>
+    {% if data_error %}<div class="notice notice-error" role="alert">{{ data_error }}</div>{% endif %}
+    {% if import_error %}<div class="notice notice-error" role="alert">导入失败：{{ import_error }}</div>{% endif %}
+    {% if imported_count %}<div class="notice notice-success" role="status">已导入 {{ imported_count }} 条消息，可在下方勾选并开始检测。</div>{% endif %}
+    <details class="data-import-panel" {% if not total %}open{% endif %}>
+        <summary><span><span class="section-number">01</span><strong>导入消息</strong><small>CSV 文件 / 多行文本</small></span><span aria-hidden="true">＋</span></summary>
+        <div class="data-import-grid">
+            <form class="data-import-form" method="post" action="{{ url_for('main.data_import') }}" enctype="multipart/form-data" data-import-form data-import-kind="csv">
+                <div class="data-import-title"><span class="data-import-icon" aria-hidden="true">▤</span><div><h2>上传 CSV 文件</h2><p>适合整理好的数据集</p></div></div>
+                <label class="data-file-field" for="data-csv-file"><span>选择 CSV 文件</span><input id="data-csv-file" type="file" name="file" accept=".csv,text/csv" required><small>至少包含 content 或“内容”列，可添加 source 或“来源”列。</small></label>
+                <label class="batch-field" for="data-csv-source"><span>默认来源 <small>选填</small></span><input id="data-csv-source" type="text" name="source" maxlength="200" placeholder="例如：课程数据集"></label>
+                <div class="data-import-footer"><span>每次最多 {{ batch_limits.max_import_rows }} 条 · 文件不超过 1 MiB</span><button type="submit" class="dash-button dash-button-small">导入 CSV <span aria-hidden="true">↑</span></button></div>
+                <p class="batch-inline-status" data-import-status role="status" aria-live="polite"></p>
+            </form>
+            <form class="data-import-form" method="post" action="{{ url_for('main.data_import') }}" data-import-form data-import-kind="text">
+                <div class="data-import-title"><span class="data-import-icon" aria-hidden="true">≡</span><div><h2>粘贴多行文本</h2><p>每行一条消息，直接开始整理</p></div></div>
+                <label class="batch-field" for="data-import-text"><span>消息文本</span><textarea id="data-import-text" name="text" rows="5" required placeholder="第一条消息内容&#10;第二条消息内容&#10;第三条消息内容"></textarea></label>
+                <label class="batch-field" for="data-text-source"><span>消息来源 <small>选填</small></span><input id="data-text-source" type="text" name="source" maxlength="200" placeholder="例如：课堂演示样本"></label>
+                <div class="data-import-footer"><span>每条最多 {{ batch_limits.max_message_length }} 字符</span><button type="submit" class="dash-button dash-button-small">导入文本 <span aria-hidden="true">＋</span></button></div>
+                <p class="batch-inline-status" data-import-status role="status" aria-live="polite"></p>
+            </form>
+        </div>
+    </details>
 
-</section>
-
-<section class="panel">
-    <div class="panel-head">
-        <h2>全部消息</h2>
-        <span class="panel-meta">共 {{ total }} 条 · 第 {{ page }} / {{ total_pages }} 页</span>
-    </div>
-
-    <div class="table-wrap">
-        <table class="msg-table">
-            <thead>
-                <tr>
-                    <th>消息内容</th>
-                    <th>性质</th>
-                    <th>风险评分</th>
-                    <th>历史分类分数</th>
-                    <th>来源</th>
-                    <th>发出时间</th>
-                    <th>处理时间</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for r in rows %}
-                <tr id="dataset-row-{{ (page - 1) * 20 + loop.index0 }}">
-                    <td class="cell-content"><div class="clamp">{{ r.content }}</div></td>
-                    <td><span class="nature nature-{{ nature_class.get(r.nature, 'unknown') }}">{{ r.nature }}</span></td>
-                    <td title="{{ r.risk_model }} · {{ r.risk_reason }}">{% if r.risk_score %}{{ r.risk_score }} / 100{% else %}<span class="muted">—</span>{% endif %}</td>
-                    <td>{% if r.fake_probability %}{{ r.fake_probability }}%{% else %}<span class="muted">—</span>{% endif %}</td>
-                    <td>{{ r.source }}</td>
-                    <td class="cell-time">{{ r.publish_time or '—' }}</td>
-                    <td class="cell-time">{{ r.process_time or '—' }}</td>
-                </tr>
-                {% else %}
-                <tr><td colspan="7" class="empty">暂无消息</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <div class="pagination">
-        {% if page > 1 %}
-        <a class="btn btn-sm" href="{{ url_for('main.data', page=page-1, q=query or None) }}">上一页</a>
-        {% else %}
-        <span class="btn btn-sm btn-disabled">上一页</span>
-        {% endif %}
-        <span class="page-info">第 {{ page }} / {{ total_pages }} 页</span>
-        {% if page < total_pages %}
-        <a class="btn btn-sm" href="{{ url_for('main.data', page=page+1, q=query or None) }}">下一页</a>
-        {% else %}
-        <span class="btn btn-sm btn-disabled">下一页</span>
-        {% endif %}
-    </div>
-</section>
+    <section class="data-search-section"><div><p class="dash-eyebrow">SAMPLE LIBRARY</p><h2>选择需要检测的消息</h2></div><a class="dash-button dash-button-small" href="{{ url_for('main.search') }}">按关键字查找 <span aria-hidden="true">↗</span></a></section>
+    <form id="data-batch-form" method="post" action="{{ url_for('main.batch_start') }}" data-max-rows="{{ batch_limits.max_batch_rows }}">
+        <section class="batch-configuration">
+            <div class="batch-config-heading"><span class="section-number">02</span><h2>设置这批消息的分析方式</h2><span>相同配置，逐条执行</span></div>
+            <div class="batch-config-grid">
+                <fieldset class="risk-fieldset"><legend class="risk-model-legend">分析方式</legend><div class="risk-mode-options batch-mode-options"><label class="risk-mode-option"><input type="radio" name="mode" value="single" {% if default_mode == 'single' %}checked{% endif %}><span><strong>单模型分析</strong><small>选择 1 个模型</small></span></label><label class="risk-mode-option"><input type="radio" name="mode" value="vote" {% if models | length < 2 %}disabled{% endif %} {% if default_mode != 'single' %}checked{% endif %}><span><strong>多模型投票</strong><small>选择 2–3 个模型</small></span></label></div><p class="batch-config-help" id="batch-selection-help" aria-live="polite">{% if available_models | length == 1 %}当前 1 个模型可用，已默认选择单模型分析。{% elif not available_models %}模型服务尚未就绪，连接后即可检测已导入的消息。{% else %}选择模型后，勾选下方消息开始检测。{% endif %}</p></fieldset>
+                <fieldset class="risk-fieldset"><legend class="risk-model-legend">参与模型 <span><span id="batch-model-available-count">{{ available_models | length }}</span> 个可用</span></legend><div class="batch-model-list">
+                    {% for m in models %}
+                    <div class="risk-model batch-model-card"><label class="risk-model-choice"><input type="checkbox" name="models" value="{{ m.id }}" data-available="true" {% if m.id in default_selected_ids %}checked{% endif %}>{{ model_mark(m.id, loop.index) }}<span class="risk-model-copy"><span class="risk-model-title"><strong>{{ m.display_name }}</strong><span class="risk-availability risk-availability-ready">已连接</span></span><span class="risk-model-description">{{ m.description }}</span></span></label></div>
+                    {% else %}<p class="risk-empty-models">暂无可用的分析模型，请启动模型服务并重启网站。</p>{% endfor %}
+                </div></fieldset>
+            </div>
+        </section>
+        <section class="batch-dataset">
+            <div class="batch-dataset-heading"><div><h2>全部消息</h2><p>共 {{ total }} 条 · 第 {{ page }} / {{ total_pages }} 页</p></div><div class="batch-selection-tools"><button id="batch-select-page" type="button" class="risk-text-button" hidden>全选本页</button><button id="batch-clear-selection" type="button" class="risk-text-button" hidden>清空选择</button></div></div>
+            <div class="table-wrap"><table class="msg-table batch-table"><thead><tr><th class="batch-check-cell"><span class="visually-hidden">选择消息</span></th><th>消息内容</th><th>来源</th><th>检测状态</th><th>数据集标签</th></tr></thead><tbody>
+                {% for r in display_rows %}
+                <tr id="dataset-row-{{ (page - 1) * 20 + loop.index0 }}"><td class="batch-check-cell"><input type="checkbox" name="items" value="{{ {'file':r['_file'],'row':r['_row'],'signature':r['_signature']} | tojson | forceescape }}" data-file="{{ r['_file'] }}" data-row="{{ r['_row'] }}" data-signature="{{ r['_signature'] }}" aria-label="选择消息：{{ r.content | truncate(45) }}"></td><td class="batch-content-cell"><details class="data-message-details"><summary>{{ r.content | truncate(105) }}</summary><p>{{ r.content }}</p></details></td><td class="batch-source-cell">{{ r.source or '—' }}</td><td class="batch-result-cell" data-row-result>{% if r.latest_report %}<span class="batch-result-badge risk-level-{{ r.latest_report.level }}">{{ r.latest_report.label }}</span><a href="{{ r.latest_report.history_url }}">查看报告 <span aria-hidden="true">↗</span></a>{% else %}<span class="batch-result-empty">待检测</span>{% endif %}</td><td><span class="nature nature-{{ nature_class.get(r.nature,'unknown') }}">{{ '未标注' if r.nature == '未校验' else r.nature or '未标注' }}</span></td></tr>
+                {% else %}<tr><td colspan="5"><div class="data-table-empty"><span aria-hidden="true">▤</span><h3>先导入第一批消息</h3><p>使用上方 CSV 或多行文本导入，随后即可勾选批量检测。</p></div></td></tr>{% endfor %}
+            </tbody></table></div>
+            <nav class="pagination" aria-label="消息分页">{% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('main.data',page=page-1) }}">上一页</a>{% else %}<span class="btn btn-sm btn-disabled">上一页</span>{% endif %}<span class="page-info">第 {{ page }} / {{ total_pages }} 页</span>{% if page < total_pages %}<a class="btn btn-sm" href="{{ url_for('main.data',page=page+1) }}">下一页</a>{% else %}<span class="btn btn-sm btn-disabled">下一页</span>{% endif %}</nav>
+        </section>
+        <div class="batch-action-bar"><div><strong>已选 <span id="batch-selected-count">0</span> 条消息</strong><p>每批最多 {{ batch_limits.max_batch_rows }} 条 · 完整报告自动保存到历史记录</p></div><button id="batch-submit" type="submit" class="dash-button" {% if not available_models %}disabled{% endif %}><span>开始批量检测</span><span aria-hidden="true">↗</span></button></div>
+        <p id="batch-status-message" class="batch-inline-status" role="status" aria-live="polite">{{ batch_error or '' }}</p>
+    </form>
+    <div id="batch-progress-box" {% if current_job %}data-job-id="{{ current_job.id }}" data-job-status="{{ current_job.status }}" data-status-url="{{ url_for('main.batch_status',job_id=current_job.id) }}" data-cancel-url="{{ url_for('main.batch_cancel',job_id=current_job.id) }}"{% endif %}>{% include "_batch_panel.html" %}</div>
+    {% if recent_jobs %}<section class="batch-recent"><div class="batch-recent-heading"><p class="dash-eyebrow">RECENT BATCHES</p><h2>最近的批量任务</h2></div><div class="batch-recent-list">{% for job in recent_jobs %}<a href="{{ url_for('main.data',job=job.id) }}"><span>{{ {'queued':'等待运行','running':'正在检测','cancelling':'正在停止','completed':'已完成','cancelled':'已停止','interrupted':'已中断'}.get(job.status,job.status) }}</span><strong>{{ job.saved_count }} / {{ job.total }} 份报告</strong><time datetime="{{ job.created_at }}" data-local-time>{{ job.created_at }}</time><b aria-hidden="true">↗</b></a>{% endfor %}</div></section>{% endif %}
+</div>
 {% endblock %}
+{% block scripts %}<script src="{{ url_for('static',filename='js/batch.js') }}" defer></script>{% endblock %}

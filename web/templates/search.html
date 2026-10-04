@@ -31,7 +31,7 @@
             <article class="keyword-result-card">
                 <div class="keyword-result-meta"><span>{{ (page - 1) * 20 + loop.index }}</span><span class="nature nature-{{ nature_class.get(row.nature, 'unknown') }}">{{ row.nature or '未校验' }}</span><time>{{ row.publish_time or '未填写时间' }}</time></div>
                 <details class="keyword-result-content"><summary>{{ row.content | truncate(160) | highlight_keyword(query) }}</summary><p>{{ row.content | highlight_keyword(query) }}</p></details>
-                <div class="keyword-result-footer"><p>来源：<strong>{{ (row.source or '未填写') | highlight_keyword(query) }}</strong></p><div class="keyword-result-links"><a href="{{ url_for('main.data', page=row.dataset_page) }}#{{ row.dataset_anchor }}">定位原文</a><a href="{{ url_for('main.verify', file=row['_file'], row=row['_row'], signature=row['_signature']) }}">进入人工校验</a></div></div>
+                <div class="keyword-result-footer"><p>来源：<strong>{{ (row.source or '未填写') | highlight_keyword(query) }}</strong></p><div class="keyword-result-links">{% if row.latest_report %}<a href="{{ url_for('main.report', report_id=row.latest_report.id) }}">查看检测报告</a>{% endif %}<a href="{{ url_for('main.data', page=row.dataset_page) }}#{{ row.dataset_anchor }}">定位原文</a><a href="{{ url_for('main.verify', file=row['_file'], row=row['_row'], signature=row['_signature']) }}">进入人工校验</a></div></div>
             </article>
         {% else %}<div class="panel keyword-empty"><h3>暂时没有匹配的消息</h3><p>试试更短的关键字，或查看数据集中已有的消息。</p><a class="btn btn-sm" href="{{ url_for('main.data') }}">前往数据展示</a></div>{% endfor %}
         </div>

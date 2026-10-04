@@ -2,7 +2,7 @@
 
 from flask import current_app, render_template, request
 
-from .. import newsdata
+from .. import batches, newsdata
 from ..keywords import dataset_keywords
 from . import main
 from .data import PAGE_SIZE as DATA_PAGE_SIZE
@@ -42,9 +42,12 @@ def search_context(query, page=1):
     page = max(1, min(page, total_pages))
     selected = matches.iloc[(page - 1) * PAGE_SIZE:page * PAGE_SIZE]
     rows = selected.to_dict("records")
+    references = [dict(file=row["_file"], row=int(row["_row"]), signature=row["_signature"]) for row in rows]
+    latest = batches.latest_reports(references)
     for dataset_index, row in zip(selected.index, rows):
         row["dataset_page"] = int(dataset_index) // DATA_PAGE_SIZE + 1
         row["dataset_anchor"] = "dataset-row-{}".format(dataset_index)
+        row["latest_report"] = latest.get((row["_file"], int(row["_row"]), row["_signature"]))
     context.update(rows=rows, total_matches=total_matches, page=page, total_pages=total_pages)
     return context
 
