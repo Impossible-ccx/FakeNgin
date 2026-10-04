@@ -719,16 +719,12 @@ a {
 
 .risk-fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .risk-fieldset .risk-section-heading { justify-content: flex-start; margin-bottom: 16px; }
-.risk-mode-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
-.risk-mode-option { display: flex; align-items: flex-start; gap: 8px; padding: 12px 10px; border: 1px solid var(--risk-line); border-radius: 10px; cursor: pointer; }
-.risk-mode-option:has(input:checked) { border-color: #799dee; background: #f1f5ff; }
-.risk-mode-option input,
 .risk-model input { flex-shrink: 0; width: 15px; height: 15px; margin: 3px 0 0; accent-color: var(--risk-blue); cursor: pointer; }
-.risk-mode-option strong { display: block; font-size: 12px; }
-.risk-mode-option small { display: block; margin-top: 3px; color: var(--risk-muted); font-size: 11px; }
 .risk-model-fieldset { margin-top: 24px; }
 .risk-model-legend { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; margin-bottom: 10px; padding: 0; font-size: 13px; font-weight: 700; }
 .risk-model-legend span { color: var(--risk-muted); font-size: 11px; font-weight: 400; }
+.risk-model-legend .risk-model-legend-title { display: flex; align-items: center; gap: 10px; color: var(--risk-ink); font-size: 15px; font-weight: 700; }
+.risk-model-legend .risk-step { color: var(--risk-blue); }
 .risk-model-list { display: grid; gap: 9px; }
 .risk-model-list[hidden] { display: none; }
 .risk-model { display: flex; align-items: flex-start; gap: 10px; padding: 13px; border: 1px solid var(--risk-line); border-radius: 10px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
@@ -844,7 +840,6 @@ a {
     .risk-input-panel,
     .risk-settings-panel,
     .risk-report { padding: 18px; border-radius: 12px; }
-    .risk-mode-option { padding: 11px 8px; gap: 6px; }
     .risk-model-title { flex-wrap: wrap; }
     .risk-verdict { align-items: flex-start; flex-direction: column; gap: 16px; padding: 18px; }
     .risk-agreement { text-align: left; }

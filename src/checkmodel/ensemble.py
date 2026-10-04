@@ -1,4 +1,8 @@
-"""语言风险等级优先等权投票，无多数时按有效分数均值分档。"""
+"""语言风险等级优先等权投票，无多数时按有效分数均值分档。
+
+检测方式按所选模型数量自动决定：选择 1 个模型为单模型分析，
+选择多个模型为等权投票。
+"""
 
 import math
 from time import perf_counter
@@ -51,14 +55,12 @@ def get_risk_models():
     ]
 
 
-def _validate_request(message, model_ids, mode):
+def _validate_request(message, model_ids):
     if not isinstance(message, str) or not message.strip():
         raise ValueError("请输入消息内容")
     message = message.strip()
     if len(message) > MAX_MESSAGE_LENGTH:
         raise ValueError("消息内容不能超过 {} 个字符".format(MAX_MESSAGE_LENGTH))
-    if mode not in ("vote", "single"):
-        raise ValueError("请选择有效的检测模式")
     if not isinstance(model_ids, (list, tuple)):
         raise ValueError("请选择检测模型")
 
@@ -69,10 +71,8 @@ def _validate_request(message, model_ids, mode):
         if model_id in selected:
             raise ValueError("不能重复选择同一个风险模型")
         selected.append(model_id)
-    if mode == "vote" and not 2 <= len(selected) <= 3:
-        raise ValueError("投票模式需要选择 2 到 3 个不同的风险模型")
-    if mode == "single" and len(selected) != 1:
-        raise ValueError("单模型模式需要选择 1 个风险模型")
+    if not selected:
+        raise ValueError("请至少选择 1 个风险模型")
     return message, selected
 
 
@@ -136,9 +136,13 @@ def _check_member(message, model_id):
     return member
 
 
-def run_risk_check(message, model_ids, mode="vote"):
-    """按选定成员总数计票；无多数则对有效分数取均值，零有效分才无法判断。"""
-    message, selected = _validate_request(message, model_ids, mode)
+def run_risk_check(message, model_ids):
+    """按选定成员总数计票；无多数则对有效分数取均值，零有效分才无法判断。
+
+    选择 1 个模型时按单模型分析，选择多个模型时按等权投票。
+    """
+    message, selected = _validate_request(message, model_ids)
+    mode = "single" if len(selected) == 1 else "vote"
     started = perf_counter()
     members = [_check_member(message, model_id) for model_id in selected]
     votes = {"low": 0, "medium": 0, "high": 0}

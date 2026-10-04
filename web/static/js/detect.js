@@ -12,15 +12,9 @@
     var count = document.getElementById('risk-char-count');
     var selectionHelp = document.getElementById('risk-selection-help');
     var modelInputs = Array.from(form.querySelectorAll('input[name="models"]'));
-    var modeInputs = Array.from(form.querySelectorAll('input[name="mode"]'));
     var example = document.getElementById('risk-example');
     var clear = document.getElementById('risk-clear');
     var busy = false;
-
-    function currentMode() {
-        var checked = form.querySelector('input[name="mode"]:checked');
-        return checked ? checked.value : 'vote';
-    }
 
     function selectedModels() {
         return modelInputs.filter(function (input) { return input.checked && !input.disabled; });
@@ -30,32 +24,27 @@
         return input.getAttribute('data-available') === 'true';
     }
 
-    function updateSelection(changedInput) {
+    function updateSelection() {
         if (busy) return;
-        if (currentMode() === 'single') {
-            var selected = selectedModels();
-            var keep = changedInput && changedInput.checked ? changedInput : selected.find(isAvailable) || selected[0];
-            modelInputs.forEach(function (input) {
-                if (input !== keep) input.checked = false;
-            });
-        }
         var chosen = selectedModels().length;
         var chosenAvailable = selectedModels().filter(isAvailable).length;
         var available = modelInputs.filter(isAvailable).length;
-        var valid = (currentMode() === 'single' ? chosen === 1 : chosen >= 2 && chosen <= 3) && chosenAvailable > 0;
+        var valid = chosen >= 1 && chosenAvailable > 0;
         modelInputs.forEach(function (input) {
             input.closest('.risk-model').classList.toggle('risk-selected', input.checked && !input.disabled);
         });
         if (!available) {
             selectionHelp.textContent = '暂无可用模型，请先完成下方准备步骤。';
-        } else if (currentMode() === 'single') {
-            selectionHelp.textContent = chosen && !chosenAvailable ? '所选模型未就绪，请选择一个可用模型。' : '已选择 ' + chosen + ' 个模型；单模型分析需要选择 1 个可用模型。';
-        } else if (chosen >= 2 && chosen <= 3 && !chosenAvailable) {
+        } else if (!chosen) {
+            selectionHelp.textContent = '请选择至少一个模型；选择一个为单模型分析，选择多个为投票。';
+        } else if (!chosenAvailable) {
             selectionHelp.textContent = '所选模型均未就绪，请至少加入一个可用模型。';
-        } else if (chosen >= 2 && chosen <= 3 && chosenAvailable < chosen) {
+        } else if (chosenAvailable < chosen) {
             selectionHelp.textContent = '已选 ' + chosen + ' 个模型（' + chosenAvailable + ' 个可用）。未就绪模型保留在名单中，但不计入平均分。';
+        } else if (chosen === 1) {
+            selectionHelp.textContent = '已选择 1 个模型；将进行单模型分析。';
         } else {
-            selectionHelp.textContent = '已选择 ' + chosen + ' 个模型；需要 2–3 个。优先多数票，无多数时使用有效分数均值。';
+            selectionHelp.textContent = '已选择 ' + chosen + ' 个模型；将进行投票，优先多数票，无多数时使用有效分数均值。';
         }
         button.disabled = !valid;
     }
@@ -68,10 +57,7 @@
     }
 
     modelInputs.forEach(function (input) {
-        input.addEventListener('change', function () { updateSelection(input); });
-    });
-    modeInputs.forEach(function (input) {
-        input.addEventListener('change', function () { updateSelection(); });
+        input.addEventListener('change', updateSelection);
     });
     message.addEventListener('input', updateMessage);
     example.hidden = false;

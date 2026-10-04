@@ -12,7 +12,6 @@ def _context(form=None):
     models = get_risk_models()
     context = {
         "models": models,
-        "mode": "vote",
         "selected_ids": [model["id"] for model in RISK_MODELS],
         "message": "",
         "result": None,
@@ -23,11 +22,10 @@ def _context(form=None):
         return context
 
     message = form.get("message", "").strip()
-    mode = form.get("mode", "vote")
     selected_ids = form.getlist("models")
-    context.update(message=message, mode=mode, selected_ids=selected_ids)
+    context.update(message=message, selected_ids=selected_ids)
     try:
-        context["result"] = run_risk_check(message, selected_ids, mode=mode)
+        context["result"] = run_risk_check(message, selected_ids)
     except ValueError as exc:
         context["error"] = str(exc)
     return context

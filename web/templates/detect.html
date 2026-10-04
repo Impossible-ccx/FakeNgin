@@ -9,7 +9,7 @@
         <div>
             <p class="risk-eyebrow">FAKENGIN / 文本风险分析</p>
             <h1>风险检测工作台</h1>
-            <p class="risk-intro">让多个模型独立判断，查看风险分、理由与投票结果。</p>
+            <p class="risk-intro">选择一个模型进行单模型分析，选择多个模型进行投票；查看风险分、理由与结果。</p>
         </div>
         <span class="risk-local-badge"><span aria-hidden="true">●</span> 本地模型推理</span>
     </header>
@@ -37,22 +37,11 @@
         </div>
 
         <div class="risk-settings-panel">
-            <fieldset class="risk-fieldset">
-                <legend class="risk-section-heading"><span class="risk-step" aria-hidden="true">02</span> 选择检测方式</legend>
-                <div class="risk-mode-options">
-                    <label class="risk-mode-option">
-                        <input type="radio" name="mode" value="vote" {% if mode != 'single' %}checked{% endif %}>
-                        <span><strong>多模型投票</strong><small>选择 2–3 个模型</small></span>
-                    </label>
-                    <label class="risk-mode-option">
-                        <input type="radio" name="mode" value="single" {% if mode == 'single' %}checked{% endif %}>
-                        <span><strong>单模型分析</strong><small>选择 1 个模型</small></span>
-                    </label>
-                </div>
-            </fieldset>
-
             <fieldset class="risk-fieldset risk-model-fieldset" aria-describedby="risk-selection-help">
-                <legend class="risk-model-legend">参与模型 <span>{{ available_models | length }} / {{ models | length }} 可用</span></legend>
+                <legend class="risk-model-legend">
+                    <span class="risk-model-legend-title"><span class="risk-step" aria-hidden="true">02</span>选择参与模型</span>
+                    <span>{{ available_models | length }} / {{ models | length }} 可用</span>
+                </legend>
                 <div class="risk-model-list">
                     {% for m in models %}
                     <label class="risk-model {% if not m.available %}risk-model-unavailable{% endif %}">
@@ -69,7 +58,7 @@
                     <p class="risk-empty-models">尚未配置可用模型。</p>
                     {% endfor %}
                 </div>
-                <p id="risk-selection-help" class="risk-selection-help" aria-live="polite">{% if mode == 'single' %}请选择 1 个可用模型。{% else %}请选择 2–3 个模型，至少一个可用。优先按多数票判断，无多数时使用有效分数的均值。{% endif %}</p>
+                <p id="risk-selection-help" class="risk-selection-help" aria-live="polite">选择 1 个模型进行单模型分析，选择多个模型进行投票；至少一个可用。优先按多数票判断，无多数时使用有效分数的均值。</p>
             </fieldset>
 
             {% if available_models | length < models | length or not models %}
@@ -84,7 +73,7 @@
                 <span>开始检测</span><span aria-hidden="true">→</span>
             </button>
             <p class="risk-runtime-note">本机模型依次运行，完成后统一展示结果。运行时间取决于模型与设备性能。</p>
-            <noscript><p class="risk-help">提交后请等待页面返回；单模型模式请选择一个模型，投票模式请选择两个或三个模型。</p></noscript>
+            <noscript><p class="risk-help">提交后请等待页面返回；请选择至少一个模型，选择一个为单模型分析，选择多个为投票。</p></noscript>
         </div>
     </form>
 
