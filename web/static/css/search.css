@@ -1,0 +1,52 @@
+/* Standalone keyword search works with the base application's styles. */
+.keyword-page-heading { margin-bottom:24px; }
+.keyword-page-heading h1 { margin:0 0 8px; font-size:28px; }
+.keyword-page-heading p,.keyword-search-help { color:var(--muted); font-size:13px; }
+.keyword-search-panel { margin-bottom:20px; }
+.keyword-search-form { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
+.keyword-input-label { flex-basis:100%; font-size:13px; color:var(--muted); }
+.keyword-search-form input { flex:1; min-width:0; height:43px; padding:9px 13px; border:1px solid var(--line); border-radius:8px; color:var(--ink); font:inherit; font-size:14px; }
+.keyword-search-form input:focus-visible,.keyword-workspace a:focus-visible { outline:3px solid #91b8ef; outline-offset:3px; }
+.keyword-clear { color:var(--blue-dark); font-size:13px; }
+.keyword-search-help { margin:14px 0 0; }
+.keyword-error { margin-bottom:20px; }
+.keyword-cloud-panel { margin-bottom:24px; }
+.keyword-cloud-heading,.keyword-results-heading { display:flex; align-items:center; justify-content:space-between; gap:20px; }
+.keyword-cloud-heading h2 { margin:0; }
+.keyword-cloud-heading > span { color:var(--muted); font-size:12px; white-space:nowrap; }
+.keyword-cloud-panel > p { margin:12px 0 0; color:var(--muted); font-size:13px; }
+.keyword-cloud { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-top:20px; }
+.keyword-cloud-word { display:inline-flex; align-items:baseline; gap:7px; max-width:100%; padding:7px 11px; border:1px solid #dce6f3; border-radius:8px; background:#f5f9ff; color:#466f9a; overflow-wrap:anywhere; }
+.keyword-cloud-word:hover { background:#eaf3ff; border-color:#a7c6e8; }
+.keyword-cloud-word small { font-size:11px; color:#7f99b3; }
+.keyword-weight-1 { font-size:13px; }.keyword-weight-2 { font-size:15px; }.keyword-weight-3 { font-size:17px; }.keyword-weight-4 { font-size:20px; }.keyword-weight-5 { font-size:23px; }
+.keyword-results { margin-top:28px; }
+.keyword-results-heading { margin-bottom:18px; }
+.keyword-results-heading h2 { margin:0; font-size:21px; }
+.keyword-results-heading p { margin:8px 0 0; font-size:13px; color:var(--muted); overflow-wrap:anywhere; }
+.keyword-results-heading > span { flex-shrink:0; color:var(--muted); font-size:12px; }
+.keyword-result-list { display:grid; gap:14px; }
+.keyword-result-card { padding:23px; border:1px solid var(--line); border-radius:var(--radius); background:#fff; min-width:0; }
+.keyword-result-meta { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:13px; font-size:12px; color:var(--muted); }
+.keyword-result-content { line-height:1.9; }
+.keyword-result-content summary { cursor:pointer; overflow-wrap:anywhere; }
+.keyword-result-content p { margin:12px 0 0; padding:13px 16px; border-left:2px solid #bad1e8; background:#f8fafc; white-space:pre-wrap; overflow-wrap:anywhere; }
+.keyword-workspace mark { padding:1px 2px; background:#fff0b5; color:#725a29; border-radius:3px; }
+.keyword-result-footer { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-top:17px; padding-top:14px; border-top:1px solid var(--line); }
+.keyword-result-footer p { min-width:0; margin:0; font-size:13px; color:var(--muted); }
+.keyword-result-footer strong { font-weight:400; overflow-wrap:anywhere; }
+.keyword-result-links { display:flex; flex-shrink:0; gap:18px; font-size:13px; color:var(--blue-dark); }
+.keyword-result-links a:hover { text-decoration:underline; }
+.keyword-empty { text-align:center; }
+.keyword-empty h2,.keyword-empty h3 { margin-top:0; }
+.keyword-empty p { color:var(--muted); font-size:13px; }
+.msg-table tr:target { outline:2px solid #84afa7; outline-offset:-2px; background:#eff9f6; scroll-margin-top:80px; }
+@media (max-width:520px) {
+    .keyword-search-panel,.keyword-cloud-panel,.keyword-result-card,.keyword-empty { padding:20px; }
+    .keyword-cloud-heading,.keyword-results-heading { align-items:flex-start; flex-direction:column; gap:10px; }
+    .keyword-search-form input { flex-basis:100%; }
+    .keyword-search-form button { flex:1; }
+    .keyword-result-footer { align-items:flex-start; flex-direction:column; gap:12px; }
+    .keyword-result-links { width:100%; justify-content:space-between; }
+    .keyword-weight-5 { font-size:20px; }
+}

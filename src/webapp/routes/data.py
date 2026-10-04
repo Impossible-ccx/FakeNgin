@@ -1,6 +1,6 @@
 """谣言数据展示页。"""
 
-from flask import render_template, request
+from flask import redirect, render_template, request, url_for
 
 from .. import newsdata
 from . import main
@@ -14,6 +14,8 @@ def data():
     if page < 1:
         page = 1
     query = request.args.get("q", "").strip()
+    if query:
+        return redirect(url_for("main.search", q=query))
 
     message_table = newsdata.load_all()
     total = len(message_table)
@@ -23,13 +25,12 @@ def data():
 
     start = (page - 1) * PAGE_SIZE
     rows = message_table.iloc[start:start + PAGE_SIZE].to_dict("records")
-    search_results = newsdata.search_messages(query, limit=3) if query else []
 
     return render_template(
         "data.html",
         rows=rows,
         query=query,
-        search_results=search_results,
+        search_results=[],
         page=page,
         total=total,
         total_pages=total_pages,

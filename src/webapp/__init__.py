@@ -19,6 +19,9 @@ def create_app():
         template_folder=str(WEB_DIR / "templates"),
     )
     app.secret_key = SECRET_KEY
+    from .presentation import highlight_keyword
+
+    app.jinja_env.filters["highlight_keyword"] = highlight_keyword
 
     db.ensure_database()
     newsdata.ensure_newsdata()
