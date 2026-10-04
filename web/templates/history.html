@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}FakeNgin · 检测历史{% endblock %}
+{% block content %}
+<section class="panel">
+    <div class="panel-head"><h1>检测历史</h1><a class="btn btn-primary" href="{{ url_for('main.detect') }}">新建检测</a></div>
+    <p>保存每一次完整检测的原文、评分、理由和聚合结果。共 {{ total }} 份报告。</p>
+    <form class="search-bar" action="{{ url_for('main.history') }}" method="get"><label for="history-query">搜索报告</label><input type="text" id="history-query" name="q" value="{{ query }}" placeholder="按原文查找"><button class="btn btn-primary" type="submit">搜索</button></form>
+    {% if error %}<p class="notice notice-error" role="alert">{{ error }}</p>{% endif %}
+    {% for item in records %}<article class="panel"><p>{{ item.created_at }} · {{ item.result.label }} · {{ item.result.success_count }} / {{ item.result.selected_count }} 个有效结果</p><details><summary>{{ item.message | truncate(160) }}</summary><p>{{ item.message }}</p></details><a class="btn btn-sm" href="{{ url_for('main.report', report_id=item.id) }}">查看报告</a></article>{% else %}<p>暂无匹配的检测报告。</p>{% endfor %}
+    <nav class="pagination" aria-label="历史记录分页">{% if page > 1 %}<a class="btn btn-sm" href="{{ url_for('main.history',q=query,page=page-1) }}">上一页</a>{% endif %}<span>第 {{ page }} / {{ total_pages }} 页</span>{% if page < total_pages %}<a class="btn btn-sm" href="{{ url_for('main.history',q=query,page=page+1) }}">下一页</a>{% endif %}</nav>
+</section>
+{% endblock %}

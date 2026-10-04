@@ -1,0 +1,10 @@
+{% if history_error %}<p class="notice notice-error" role="alert">{{ history_error }}</p>{% endif %}
+{% if record %}
+<div class="report-actions" aria-label="检测报告操作">
+    <span>完整报告已保存</span>
+    <a class="btn btn-sm" href="{{ url_for('main.report', report_id=record.id) }}">查看报告</a>
+    <button class="btn btn-sm" type="button" data-copy-report="{{ url_for('main.export_report', report_id=record.id, format='txt') }}">复制报告</button>
+    {% for format in ['txt','json','csv'] %}<a class="btn btn-sm" href="{{ url_for('main.export_report', report_id=record.id, format=format) }}">下载 {{ format | upper }}</a>{% endfor %}
+    <span data-copy-status role="status"></span>
+</div>
+{% endif %}

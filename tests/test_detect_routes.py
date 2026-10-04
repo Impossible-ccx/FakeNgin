@@ -319,7 +319,7 @@ class DetectRouteTests(unittest.TestCase):
         self.assertNotIn(reason, fragment)
         self.assertIn(str(escape(reason)), fragment)
 
-    def test_full_page_and_async_fragment_show_same_decision_without_saving(self):
+    def test_full_page_and_async_fragment_show_same_decision_without_changing_csv(self):
         self.configure_scores([15, 20, 80])
         with patch.object(newsdata, "append_message") as append_message:
             full_response, full_context = self.submit("/detect")

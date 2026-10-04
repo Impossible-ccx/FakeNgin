@@ -27,6 +27,7 @@ def create_app():
     newsdata.ensure_newsdata()
 
     from .routes import main
+    from .routes import history  # noqa: F401; registers the report routes
 
     app.register_blueprint(main)
 

@@ -5,6 +5,7 @@
 
 {% block content %}
 <div class="risk-workspace">
+    <p><a class="btn btn-sm" href="{{ url_for('main.history') }}">查看已保存的检测结果</a></p>
     <header class="risk-page-heading">
         <div>
             <p class="risk-eyebrow">FAKENGIN / 文本风险分析</p>
@@ -96,4 +97,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/detect.js') }}"></script>
+<script src="{{ url_for('static', filename='js/report.js') }}" defer></script>
 {% endblock %}
