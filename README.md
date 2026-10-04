@@ -1,52 +1,93 @@
 # FakeNgin
 
-基于大模型的虚假信息平台
+基于本地模型的消息风险分析平台。本分支 `feat/risk-voting` 基于 PR #2（`2c01bfc`），增加自动风险等级投票。
 
-## Setup
+## 安装与运行
 
-python 3.9
-需要的库已记录在requirements.txt中。对他们使用conda install应该就能获取全部依赖
-已经准备了使用ollama接入的 qwen2.5 7B、deepseek-r1 7B 与 glm4 9B 模型。没有做强制依赖，所以不需要下载。
-若要使用它们，需安装 ollama 并拉取对应模型：
+建议使用 Python 3.10 或更新版本，并在虚拟环境安装依赖：
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+pip install ollama
+```
+
+另外安装并启动 [Ollama](https://ollama.com/)，下载准备参与检测的模型：
 
 ```bash
 ollama pull qwen2.5:7b
 ollama pull deepseek-r1:7b
 ollama pull glm4:9b
+python src/app.py
 ```
 
-Python 端还需要安装 ollama 客户端库（程序靠它连接本地服务）：
+网站位于 http://127.0.0.1:5000/ ，风险检测位于 http://127.0.0.1:5000/detect 。
+没有模型也可以打开页面，页面会列出不可用状态。首次检测到模型不可用后，如果才启动 Ollama 或下载权重，请重启网站以刷新模型列表。
+
+原有数据管理页面的本地测试账户为 `admin` / `admin`。风险检测无需登录，也不写入人工审核队列或真假标签。
+
+## 风险投票
+
+参与名单固定为 Qwen2.5-7B、DeepSeek-R1 7B、GLM-4 9B。各模型使用相同的风险定义，独立分析来源描述、证据表述、绝对化断言、恐慌煽动、强迫转发等文本特征。通知、科普、引用专家或情绪表达本身不构成高风险依据。
+
+风险分为 0–100 分，不是真假概率。高风险不等于虚假，低风险也不保证真实。输入缺少上下文时，模型可以返回 `risk_score: null` 表示无法评分；这与请求失败分别展示。
+
+初始等级界线（尚未经过数据集校准）：
+
+| 风险分 | 等级 |
+| --- | --- |
+| 0 ≤ 分数 < 40 | 低风险 |
+| 40 ≤ 分数 < 70 | 中风险 |
+| 70 ≤ 分数 ≤ 100 | 高风险 |
+
+- **单模型**：选择一个模型，显示它的风险分、等级、理由和耗时。
+- **投票**：选择两个或三个模型，每个模型一票，按风险等级等权计票。不做模型相似性加权。
+- 多数门槛为 `floor(选定模型数 / 2) + 1`：两模型必须同意，三模型中至少两票同等级。
+- 失败、缺失与弃权不会降低多数门槛。没有多数票或有效票不足时，改用成功返回的风险分的**算术平均值**，再按同样的 40、70 界线分档。分类使用未四舍五入的均值。
+- 页面明确标记“多数投票”或“平均分兜底”。如果只有一个模型成功，均值就是该模型分数，并提示仅有一个有效结果；只有零个有效分数时才无法判断。
+- 失败、缺失、弃权均不计入平均分，也不按 0 分计算。均值是风险评分，不是真假概率。
+- 页面展示选定数、有效结果数、各等级票数及全部成员状态；“2/3 支持”只是投票比例。
+- RoBERTa 学习真假标签，不参与本次风险投票；固定 50 分的模板模型默认禁用且不在投票白名单中。
+
+示例：80/90/10 → 高风险（多数票 2/3，优先于均值）；10/50/90 → 中风险（均值 50）；90/10 → 中风险（均值 50）；90/失败/弃权 → 高风险（均值 90，只有 1/3 有效）；全部失败或弃权 → 无法判断。
+
+本地模型顺序执行，避免同时加载多个大模型。网页异步请求只表示等待期间页面不会整页刷新，后端仍在当前请求中执行检测；本版本不提供后台任务或实时成员进度。多模型用时取决于设备、模型加载及重试。每个模型有独立超时和最多两次请求尝试，主动弃权不重试。
+
+提示词版本为 `risk-v1`，Ollama 返回 `risk_score` / `reason` 的 JSON Schema；客户端拒绝 NaN、越界、旧 `probability` 字段和无有效理由的响应。Qwen/GLM 使用 temperature=0；DeepSeek 保留其推荐的 0.6 和仅 user 消息的调用方式。
+
+## 批量评分与旧数据
 
 ```bash
-pip install ollama
+python src/newscheck.py
 ```
 
-另外内置了一个中文 RoBERTa 谣言分类器（毫秒级推理，适合批量计算虚假概率）。
-使用前安装依赖并训练一次：
+批处理根据 `model.score_kind` 分开存储：
+
+- 风险模型 → `risk_score`、`risk_model`、`risk_reason`、`risk_prompt_version`。
+- 原有真假分类器 → `fake_probability`。
+
+旧 CSV 读取时为新字段补空值，写回时增加列；原来的分数和标签不会自动转换为风险分。修改来源等元信息时保留已有风险字段，修改正文时清除旧风险结果以便重新评分。数据展示页将风险分与历史分类分数分列显示。
+
+网页投票结果目前仅展示，不自动保存。CLI 仍是单模型批处理，每 20 个成功结果保存一次，单条失败继续；强制中止时最近未保存的结果可能需要重跑。
+
+## 可选的 RoBERTa 训练
+
+RoBERTa 保留为独立的真假分类实验，未参与风险页面。
 
 ```bash
 pip install torch transformers
 python src/train_rumor_model.py
 ```
 
-训练数据取自 database/newsdata/output/ 下 csv 的 nature 列（True=谣言，False=非谣言），
-产出模型保存在 models/rumor-roberta/。首次训练会通过 hf-mirror.com 下载基座模型。
+训练数据为 `database/newsdata/output/` 下 CSV，`nature=True` 表示谣言，`False` 表示非谣言；权重输出到 `models/rumor-roberta/`。首次运行下载基座模型，脚本默认通过 `hf-mirror.com`，可使用 `HF_ENDPOINT` 覆盖。仓库不包含训练权重或真实模型评测结论。
 
-## Run
+## 测试
 
 ```bash
-python src/app.py
+python -m unittest discover -s tests -v
 ```
 
-网页开放于 http://127.0.0.1:5000/ 
-测试账户为admin，密码为admin
+测试使用模拟模型和隔离的临时数据，覆盖多数票、分歧、失败、弃权、边界、非法输出、网页表单/异步路径和存储语义。不依赖真实模型，不代表已验证真实推理效果。
 
-## Model
-
-添加其他模型查看src/checkmodel/下的__init__.py和base.py；
-Ollama 系模型可直接复用 src/checkmodel/ollama_base.py 的公共基类。
-可选依赖清单见 requirements-optional.txt。
-
-## Check
-
-newscheck脚本将检查现在可用的模型，控制台中进行选择后，对所有数据进行虚假度计算。
+效果评估应独立比较各单模型与投票版本的风险标注一致性、明确结论覆盖率和耗时。真假数据集标签不应直接当作语言风险等级标签。

@@ -16,7 +16,7 @@ REQUEST_TIMEOUT = 120  # R1 会先生成推理链，耗时高于普通模型
 class Ollama_DeepSeek(OllamaModel):
     name = "deepseek_r1"
     display_name = "DeepSeek-R1 (Ollama)"
-    description = "本地 Ollama 大模型 deepseek-r1，根据消息内容给出虚假概率与理由。"
+    description = "按相同风险标准分析消息，返回风险评分和简短理由。"
     model_name = MODEL_NAME
     timeout = REQUEST_TIMEOUT
     temperature = 0.6

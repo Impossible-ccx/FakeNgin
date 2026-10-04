@@ -12,9 +12,9 @@ MODEL_NAME = "qwen2.5:7b"
 class Ollama_Qwen25(OllamaModel):
     name = "qwen2.5_7b"
     display_name = "Qwen2.5-7B (Ollama)"
-    description = "本地 Ollama 大模型 qwen2.5:7b，根据消息内容给出虚假概率与理由。"
+    description = "评估消息的语言、来源描述与传播风险，返回风险评分和理由。"
     model_name = MODEL_NAME
-    temperature = 0.5
+    temperature = 0
 
 
 MODEL_CLASS = Ollama_Qwen25
