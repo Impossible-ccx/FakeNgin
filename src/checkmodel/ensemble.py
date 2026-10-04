@@ -38,7 +38,7 @@ _LEVEL_LABELS = {
 def get_risk_models():
     """只展示当前可用的风险模型，不改变固定的风险模型元数据。"""
     available_ids = {
-        model["id"] for model in checkmodel.get_models()
+        model["id"] for model in checkmodel.get_models(model_ids=[model["id"] for model in RISK_MODELS])
         if model.get("available", True) and model.get("score_kind", "risk") == "risk"
     }
     return [

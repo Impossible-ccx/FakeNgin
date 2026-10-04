@@ -8,7 +8,7 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from checkmodel.ensemble import MAX_MESSAGE_LENGTH
 
 from .. import batches, dataset, newsdata
-from ..models import list_web_models, validate_web_source
+from ..models import list_cached_web_models, refresh_web_models, validate_web_source
 from . import main
 
 PAGE_SIZE = 20
@@ -36,18 +36,24 @@ def _context():
     current_job = batches.get_batch(requested_job) if requested_job else next(
         (job for job in recent_jobs if job["status"] in batches.ACTIVE_STATUSES), None,
     )
-    models = list_web_models()
+    models = list_cached_web_models()
     available_ids = [model["id"] for model in models if model["available"]]
-    selected_ids = available_ids
-    mode = "vote" if len(selected_ids) > 1 else "single"
+    preferred_ids = [model_id for model_id in current_job["model_ids"]
+                     if model_id in available_ids] if current_job else available_ids
+    mode = "vote" if len(available_ids) > 1 else "single"
+    if current_job and len(available_ids) > 1:
+        mode = current_job["mode"]
+    selected_ids = preferred_ids if len(preferred_ids) > 1 else available_ids
+    if mode == "single":
+        selected_ids = (preferred_ids or available_ids)[:1]
     return dict(
         rows=rows,
         page=page,
         total=total,
         total_pages=total_pages,
         models=models,
-        default_selected_ids=current_job["model_ids"] if current_job else selected_ids,
-        default_mode=current_job["mode"] if current_job else mode,
+        default_selected_ids=selected_ids,
+        default_mode=mode,
         active_job_id=current_job["id"] if current_job else None,
         current_job=current_job,
         recent_jobs=recent_jobs,
@@ -78,6 +84,32 @@ def data():
     if query:
         return redirect(url_for("main.search", q=query))
     return render_template("data.html", **_context())
+
+
+def _models_response(models):
+    response = jsonify(models=models, available_count=sum(bool(model.get("available")) for model in models),
+                       needs_probe=any(model.get("needs_probe", False) for model in models))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@main.route("/data/models")
+def data_models():
+    """仅读取已经知道的模型状态，不连接服务或加载权重。"""
+    return _models_response(list_cached_web_models())
+
+
+@main.route("/data/models/refresh", methods=["POST"])
+def data_models_refresh():
+    """用户主动检查连接；不会创建检测任务或执行推理。"""
+    try:
+        models = refresh_web_models()
+    except Exception:
+        current_app.logger.warning("Model availability refresh failed")
+        return _error("模型连接检查失败，请稍后重试。", 503)
+    if _wants_json():
+        return _models_response(models)
+    return redirect(url_for("main.data", page=max(1, request.form.get("page", 1, type=int))), code=303)
 
 
 @main.route("/data/import", methods=["POST"])

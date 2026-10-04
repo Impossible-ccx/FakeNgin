@@ -6,6 +6,10 @@
     if (!form || !box) return;
     var rows = Array.from(form.querySelectorAll('input[name="items"]'));
     var models = Array.from(form.querySelectorAll('input[name="models"]'));
+    var modelList = document.getElementById('batch-model-list');
+    var refreshForm = document.getElementById('batch-model-refresh');
+    var refreshButton = document.getElementById('batch-model-refresh-button');
+    var modelCheckStatus = document.getElementById('batch-model-check-status');
     var submit = document.getElementById('batch-submit');
     var count = document.getElementById('batch-selected-count');
     var statusMessage = document.getElementById('batch-status-message');
@@ -38,6 +42,9 @@
         rememberSelection();
     }
     var creating = false;
+    var checkingModels = false;
+    var modelSelectionEdited = form.getAttribute('data-model-preferences') === 'true';
+    var modeSelectionEdited = modelSelectionEdited;
     var jobActive = false;
     var polling = false;
     var pollTimer;
@@ -80,17 +87,28 @@
         if (count) count.textContent = selected;
         var chosen = chosenModels();
         var ready = chosen.filter(available).length;
+        var connectedCount = models.filter(available).length;
+        var needsProbe = models.some(function (input) { return input.getAttribute('data-needs-probe') === 'true'; });
         var availableCount = document.getElementById('batch-model-available-count');
-        if (availableCount) availableCount.textContent = models.filter(available).length;
+        if (availableCount) availableCount.textContent = connectedCount;
+        var voteMode = form.querySelector('input[name="mode"][value="vote"]');
+        if (voteMode) voteMode.disabled = connectedCount < 2;
+        if (refreshButton) refreshButton.disabled = checkingModels || creating;
         var modelHelp = document.getElementById('batch-selection-help');
-        if (modelHelp) modelHelp.textContent = ready < chosen.length ? '已选 ' + chosen.length + ' 个模型，' + ready + ' 个可用；有效票不足时取有效分数均值。' : '每条消息使用相同的 ' + chosen.length + ' 个模型配置，逐条顺序检测。';
+        if (modelHelp) {
+            if (checkingModels) modelHelp.textContent = '正在检查模型连接…';
+            else if (needsProbe) modelHelp.textContent = '尚未检查模型连接。点击“检查模型连接”后选择参与模型。';
+            else if (!connectedCount) modelHelp.textContent = '未找到已连接的分析模型，启动模型服务后可重新检查连接。';
+            else modelHelp.textContent = ready < chosen.length ? '已选 ' + chosen.length + ' 个模型，' + ready + ' 个可用；有效票不足时取有效分数均值。' : '每条消息使用相同的 ' + chosen.length + ' 个模型配置，逐条顺序检测。';
+        }
         var validModels = mode() === 'single' ? chosen.length === 1 : chosen.length >= 2 && chosen.length <= 3;
-        submit.disabled = creating || jobActive || !selected || selected > maxRows || !validModels || !ready;
+        submit.disabled = creating || checkingModels || jobActive || !selected || selected > maxRows || !validModels || !ready;
         if (statusMessage) {
             if (jobActive) statusMessage.textContent = '当前批量任务正在执行，可在下方查看进度。';
             else if (!rows.length && !selected) statusMessage.textContent = '先导入消息，再选择样本开始检测。';
             else if (!selected) statusMessage.textContent = '勾选待检测的样本，或选择本页全部消息。';
             else if (selected > maxRows) statusMessage.textContent = '每批最多检测 ' + maxRows + ' 条，请减少选择。';
+            else if (needsProbe) statusMessage.textContent = '先检查模型连接，再选择参与模型。';
             else if (!validModels) statusMessage.textContent = mode() === 'single' ? '请选择一个模型。' : '投票需要选择 2–3 个不同的模型。';
             else if (!ready) statusMessage.textContent = '所选模型尚未就绪，请选择至少一个可用模型。';
             else statusMessage.textContent = '已选 ' + selected + ' 条消息（跨页保留），' + ready + ' 个模型可用。每条完整结果自动保存到历史记录。';
@@ -99,10 +117,72 @@
         if (clearSelection) clearSelection.disabled = !selected || creating;
     }
     rows.forEach(function (input) { input.addEventListener('change', function () { setRow(input, input.checked); updateSelection(); }); });
-    models.forEach(function (input) { input.addEventListener('change', function () { updateSelection(input); }); });
-    Array.from(form.querySelectorAll('input[name="mode"]')).forEach(function (input) { input.addEventListener('change', function () { updateSelection(); }); });
+    function bindModelChoices() {
+        models.forEach(function (input) { input.addEventListener('change', function () { modelSelectionEdited = true; updateSelection(input); }); });
+    }
+    bindModelChoices();
+    Array.from(form.querySelectorAll('input[name="mode"]')).forEach(function (input) { input.addEventListener('change', function () { modeSelectionEdited = true; updateSelection(); }); });
     if (selectPage) selectPage.addEventListener('click', function () { rows.forEach(function (input) { setRow(input, true); }); updateSelection(); });
     if (clearSelection) clearSelection.addEventListener('click', function () { selectedRows.clear(); rows.forEach(function (input) { input.checked = false; }); rememberSelection(); updateSelection(); });
+
+    function renderModels(items, previousIds, previousMode) {
+        if (!modelList || !Array.isArray(items)) throw new Error('模型连接状态异常，请稍后重试。');
+        var connected = items.filter(function (item) { return item && typeof item.id === 'string' && item.available === true; });
+        var selectedMode = connected.length < 2 ? 'single' : modeSelectionEdited ? previousMode : 'vote';
+        var selectedIds = previousIds.filter(function (id) { return connected.some(function (item) { return item.id === id; }); });
+        if (selectedMode === 'single') selectedIds = selectedIds.length ? selectedIds.slice(0, 1) : connected.slice(0, 1).map(function (item) { return item.id; });
+        else if (!modelSelectionEdited) selectedIds = connected.map(function (item) { return item.id; });
+        modelList.replaceChildren();
+        connected.forEach(function (item, index) {
+            var card = node('div', 'risk-model batch-model-card');
+            var label = node('label', 'risk-model-choice');
+            var input = document.createElement('input');
+            input.type = 'checkbox';
+            input.name = 'models';
+            input.value = item.id;
+            input.setAttribute('data-available', 'true');
+            input.checked = selectedIds.indexOf(item.id) !== -1;
+            label.appendChild(input);
+            var title = typeof item.display_name === 'string' ? item.display_name : '分析模型 ' + (index + 1);
+            var mark = node('span', 'model-mark', title.split(' ').pop());
+            mark.setAttribute('aria-hidden', 'true');
+            label.appendChild(mark);
+            var copy = node('span', 'risk-model-copy');
+            var modelTitle = node('span', 'risk-model-title');
+            modelTitle.appendChild(node('strong', '', title));
+            modelTitle.appendChild(node('span', 'risk-availability risk-availability-ready', '已连接'));
+            copy.appendChild(modelTitle);
+            copy.appendChild(node('span', 'risk-model-description', item.description || '独立分析消息，给出风险评分和判断理由。'));
+            label.appendChild(copy);
+            card.appendChild(label);
+            modelList.appendChild(card);
+        });
+        if (!connected.length) modelList.appendChild(node('p', 'risk-empty-models', '暂无已连接的分析模型，启动模型服务后可重新检查连接。'));
+        models = Array.from(form.querySelectorAll('input[name="models"]'));
+        Array.from(form.querySelectorAll('input[name="mode"]')).forEach(function (input) { input.checked = input.value === selectedMode; });
+        bindModelChoices();
+        updateSelection();
+        return connected.length;
+    }
+    if (refreshForm && modelList) refreshForm.addEventListener('submit', async function (event) {
+        event.preventDefault();
+        if (checkingModels || creating) return;
+        var previousIds = chosenModels().map(function (input) { return input.value; });
+        var previousMode = mode();
+        checkingModels = true;
+        if (modelCheckStatus) modelCheckStatus.textContent = '正在检查模型连接…';
+        updateSelection();
+        try {
+            var data = await jsonRequest(refreshForm.action, {method: 'POST'});
+            var connectedCount = renderModels(data.models, previousIds, previousMode);
+            if (modelCheckStatus) modelCheckStatus.textContent = connectedCount ? '已连接 ' + connectedCount + ' 个分析模型。' : '未找到已连接的模型，启动模型服务后可再次检查。';
+        } catch (error) {
+            if (modelCheckStatus) modelCheckStatus.textContent = error instanceof TypeError ? '连接检查失败，请稍后重试。' : error.message;
+        } finally {
+            checkingModels = false;
+            updateSelection();
+        }
+    });
 
     function reportLink(url, text) {
         var link = node('a', 'batch-report-link', text || '查看报告 ↗');

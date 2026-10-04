@@ -47,6 +47,13 @@ class DetectRouteTests(unittest.TestCase):
         ))
         self.stack.enter_context(patch.object(newsdata, "NEWSDATA_DIR", self.database_dir / "newsdata"))
         self.available_models = self.stack.enter_context(patch.object(checkmodel, "get_models", return_value=RISK_MODELS))
+        self.cached_models = self.stack.enter_context(patch.object(
+            checkmodel, "get_cached_models", side_effect=lambda model_ids=None: [
+                {**model, "available": model.get("available", True)}
+                for model in self.available_models.return_value
+                if model_ids is None or model["id"] in model_ids
+            ],
+        ))
         self.model_instances = {
             model_id: Mock(score_kind="risk", check=Mock(return_value=(80, "需要核实具体消息来源。")))
             for model_id in RISK_IDS

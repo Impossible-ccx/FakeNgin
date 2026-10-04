@@ -9,13 +9,20 @@ import json
 import logging
 import math
 import re
+from threading import Lock
+from time import monotonic
 
 from .base import CheckError, CheckModel, RiskAbstention
 
 DEFAULT_TIMEOUT = 60
+PROBE_TIMEOUT = 2
+PROBE_CACHE_SECONDS = 5.0
 MAX_ATTEMPTS = 2
 PROMPT_VERSION = "risk-v1"
 logger = logging.getLogger(__name__)
+_probe_lock = Lock()
+_probe_names = None
+_probe_checked_at = None
 
 DEFAULT_SYSTEM_PROMPT = (
     "你是一名信息风险分析助手。只评估消息文本呈现的谣言传播风险，"
@@ -58,16 +65,29 @@ class OllamaModel(CheckModel):
     prompt = DEFAULT_PROMPT
 
     def detect(self):
-        try:
-            import ollama
-        except ImportError:
-            return False
-        try:
-            client = self._client(ollama)
-            names = self._installed_models(client)
-        except Exception:
-            return False
-        return any(name == self.model_name for name in names)
+        return self.model_name in (self._available_names() or ())
+
+    def refresh_detection(self, requested_at):
+        """同次刷新共享安装名单，不改变实际推理的超时时间。"""
+        return self.model_name in (self._available_names(requested_at) or ())
+
+    def _available_names(self, refresh_started=None):
+        global _probe_names, _probe_checked_at
+        with _probe_lock:
+            if (_probe_checked_at is not None
+                    and monotonic() - _probe_checked_at < PROBE_CACHE_SECONDS
+                    and (refresh_started is None or _probe_checked_at >= refresh_started)):
+                return _probe_names
+            try:
+                import ollama
+                # 探测名单最多等 2 秒；60/120 秒的超时只用于实际生成。
+                client = ollama.Client(timeout=PROBE_TIMEOUT)
+                names = tuple(self._installed_models(client))
+            except Exception:
+                names = None
+            _probe_names = names
+            _probe_checked_at = monotonic()
+            return names
 
     def check(self, message):
         try:
