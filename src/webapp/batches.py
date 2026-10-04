@@ -1,16 +1,13 @@
-"""本地持久化批任务：逐条、逐模型执行，重启后不自动重复调用。"""
+"""JSON 文件持久化批任务：逐条、逐模型执行，重启不重复调用。"""
 
-from contextlib import contextmanager
 from datetime import datetime, timezone
-import json
 from pathlib import Path
-import sqlite3
 import threading
 import uuid
 
 from checkmodel.ensemble import iter_risk_check, validate_risk_request
 
-from . import dataset, db, models as web_models, reports
+from . import dataset, db, file_store, models as web_models, reports
 
 ACTIVE_STATUSES = ("queued", "running", "cancelling")
 _lock = threading.RLock()
@@ -26,59 +23,27 @@ def _directory():
     return str(Path(db.DATABASE_DIR).resolve())
 
 
-def _json(value):
-    return json.dumps(value, ensure_ascii=False, allow_nan=False)
+def _job_directory(directory=None):
+    return Path(directory or _directory()) / "risk_batches"
 
 
-@contextmanager
-def _connection(directory=None):
-    directory = Path(directory or _directory())
-    directory.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(directory / "risk_batches.sqlite3", timeout=10)
-    connection.row_factory = sqlite3.Row
-    try:
-        with connection:
-            connection.execute("""
-                CREATE TABLE IF NOT EXISTS risk_batches (
-                    id TEXT PRIMARY KEY, status TEXT NOT NULL,
-                    created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-                    cancel_requested INTEGER NOT NULL DEFAULT 0,
-                    payload_json TEXT NOT NULL
-                )
-            """)
-            connection.execute("""
-                CREATE TABLE IF NOT EXISTS dataset_reports (
-                    file TEXT NOT NULL, row_number INTEGER NOT NULL,
-                    signature TEXT NOT NULL, report_id TEXT NOT NULL,
-                    label TEXT NOT NULL, level TEXT NOT NULL, created_at TEXT NOT NULL,
-                    PRIMARY KEY (file, row_number, signature)
-                )
-            """)
-            yield connection
-    finally:
-        connection.close()
-
-
-def _decode(row):
-    if row is None:
-        return None
-    job = json.loads(row["payload_json"])
-    job.update(status=row["status"], updated_at=row["updated_at"], cancel_requested=bool(row["cancel_requested"]))
-    return job
+def _reference_path(reference, directory=None):
+    return file_store.key_path(Path(directory or _directory()) / "dataset_reports",
+                               [reference["file"], reference["row"], reference["signature"]])
 
 
 def get_batch(job_id, directory=None):
-    with _connection(directory) as connection:
-        return _decode(connection.execute("SELECT * FROM risk_batches WHERE id = ?", (job_id,)).fetchone())
+    try:
+        path = file_store.uuid_path(_job_directory(directory), job_id)
+    except ValueError:
+        return None
+    return file_store.read_json(path)
 
 
 def list_batches(limit=5):
-    with _connection() as connection:
-        rows = connection.execute(
-            "SELECT * FROM risk_batches ORDER BY created_at DESC, id DESC LIMIT ?",
-            (max(1, min(20, int(limit))),),
-        ).fetchall()
-    return [_decode(row) for row in rows]
+    jobs = list(file_store.iter_records(_job_directory()))
+    jobs.sort(key=lambda job: (job["created_at"], job["id"]), reverse=True)
+    return jobs[:max(1, min(20, int(limit)))]
 
 
 def _counts(job):
@@ -91,19 +56,25 @@ def _counts(job):
 
 def _save_job(job, directory=None):
     _counts(job)
-    job["updated_at"] = _now()
-    # Cancellation has its own column so a worker's older snapshot cannot erase it.
-    with _connection(directory) as connection:
-        connection.execute(
-            "UPDATE risk_batches SET status = CASE "
-            "WHEN cancel_requested = 1 AND ? IN ('queued', 'running') THEN 'cancelling' ELSE ? END, "
-            "updated_at = ?, payload_json = ? WHERE id = ?",
-            (job["status"], job["status"], job["updated_at"], _json(job), job["id"]),
-        )
+    path = file_store.uuid_path(_job_directory(directory), job["id"])
+    with file_store.locked(path.parent):
+        current = file_store.read_json(path)
+        if current is None:
+            raise ValueError("Unknown batch job")
+        # 取消标记只能从 False 变为 True；旧 worker 快照不能覆盖它。
+        job["cancel_requested"] = bool(current.get("cancel_requested") or job.get("cancel_requested"))
+        if current["status"] in ("cancelled", "interrupted", "completed") and job["status"] in ACTIVE_STATUSES:
+            return
+        if current["status"] == "interrupted":
+            return
+        if job["cancel_requested"] and job["status"] in ("queued", "running"):
+            job["status"] = "cancelling"
+        job["updated_at"] = _now()
+        file_store.write_json(path, job)
 
 
 def initialize():
-    """每个进程、每个数据库路径初始化一次；旧活跃任务标中断，绝不重跑。"""
+    """每个进程、每个目录初始化一次；旧活跃任务标中断，绝不重跑。"""
     directory = _directory()
     with _lock:
         if directory in _initialized_paths:
@@ -112,12 +83,10 @@ def initialize():
         if worker is not None and worker.is_alive():
             _initialized_paths.add(directory)
             return
-        with _connection(directory) as connection:
-            rows = connection.execute(
-                "SELECT * FROM risk_batches WHERE status IN ('queued', 'running', 'cancelling')",
-            ).fetchall()
-            for row in rows:
-                job = _decode(row)
+        with file_store.locked(_job_directory(directory)):
+            for job in file_store.iter_records(_job_directory(directory)):
+                if job["status"] not in ACTIVE_STATUSES:
+                    continue
                 job["status"] = "interrupted"
                 job["error"] = "服务已重启，任务已中断；已保存的报告仍可查看。"
                 job["current_index"] = None
@@ -127,11 +96,8 @@ def initialize():
                         for member in item["members"]:
                             if member.get("status") == "running":
                                 member["status"] = "interrupted"
-                now = _now()
-                connection.execute(
-                    "UPDATE risk_batches SET status = 'interrupted', updated_at = ?, payload_json = ? WHERE id = ?",
-                    (now, _json(job), job["id"]),
-                )
+                job["updated_at"] = _now()
+                file_store.write_json(file_store.uuid_path(_job_directory(directory), job["id"]), job)
         _initialized_paths.add(directory)
 
 
@@ -159,11 +125,9 @@ def create_batch(rows, model_ids, mode="vote", deepseek_source="local"):
             "record_id": None, "history_url": None, "history_error": None, "error": None,
         })
     with _lock:
-        with _connection() as connection:
-            connection.execute(
-                "INSERT INTO risk_batches (id, status, created_at, updated_at, payload_json) VALUES (?, ?, ?, ?, ?)",
-                (job["id"], job["status"], now, now, _json(job)),
-            )
+        path = file_store.uuid_path(_job_directory(), job["id"])
+        if not file_store.write_json(path, job, overwrite=False):
+            raise RuntimeError("Batch identifier already exists")
     try:
         _start_worker()
     except Exception:
@@ -174,28 +138,28 @@ def create_batch(rows, model_ids, mode="vote", deepseek_source="local"):
 
 
 def _cancel_requested(job_id, directory):
-    with _connection(directory) as connection:
-        row = connection.execute("SELECT cancel_requested FROM risk_batches WHERE id = ?", (job_id,)).fetchone()
-    return row is not None and bool(row[0])
+    job = get_batch(job_id, directory)
+    return job is None or bool(job.get("cancel_requested")) or job["status"] in ("cancelled", "interrupted")
 
 
 def cancel_batch(job_id):
-    with _connection() as connection:
-        connection.execute("BEGIN IMMEDIATE")
-        row = connection.execute("SELECT * FROM risk_batches WHERE id = ?", (job_id,)).fetchone()
-        if row is None:
+    try:
+        path = file_store.uuid_path(_job_directory(), job_id)
+    except ValueError:
+        return None
+    with file_store.locked(path.parent):
+        job = file_store.read_json(path)
+        if job is None:
             return None
-        if row["status"] in ACTIVE_STATUSES:
-            job = _decode(row)
-            status = "cancelling"
-            if row["status"] == "queued":
-                status = "cancelled"
+        if job["status"] in ACTIVE_STATUSES:
+            if job["status"] == "queued":
+                job["status"] = "cancelled"
                 for item in job["items"]:
                     item["status"] = "cancelled"
-            connection.execute(
-                "UPDATE risk_batches SET cancel_requested = 1, status = ?, updated_at = ?, payload_json = ? WHERE id = ?",
-                (status, _now(), _json(job), job_id),
-            )
+            else:
+                job["status"] = "cancelling"
+            job.update(cancel_requested=True, updated_at=_now())
+            file_store.write_json(path, job)
     return get_batch(job_id)
 
 
@@ -211,29 +175,25 @@ def _finish_cancelled(job, directory):
 
 
 def _link_report(item, record, directory):
-    with _connection(directory) as connection:
-        connection.execute(
-            "INSERT INTO dataset_reports (file, row_number, signature, report_id, label, level, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(file, row_number, signature) DO UPDATE SET report_id=excluded.report_id, "
-            "label=excluded.label, level=excluded.level, created_at=excluded.created_at",
-            (item["file"], item["row"], item["signature"], record["id"],
-             record["result"]["label"], record["result"]["level"], record["created_at"]),
-        )
+    link = {key: item[key] for key in ("file", "row", "signature")}
+    link.update(id=record["id"], history_url="/history/" + record["id"],
+                label=record["result"]["label"], level=record["result"]["level"],
+                created_at=record["created_at"])
+    path = _reference_path(item, directory)
+    with file_store.locked(path.parent):
+        previous = file_store.read_json(path)
+        if previous is None or (record["created_at"], record["id"]) >= (previous["created_at"], previous["id"]):
+            file_store.write_json(path, link)
 
 
 def latest_reports(references):
     """按文件、行号、内容指纹关联最新已保存报告，旧内容不冒充当前结果。"""
     found = {}
-    with _connection() as connection:
-        for reference in references:
-            key = (reference["file"], reference["row"], reference["signature"])
-            row = connection.execute(
-                "SELECT * FROM dataset_reports WHERE file = ? AND row_number = ? AND signature = ?", key,
-            ).fetchone()
-            if row is not None:
-                found[key] = {"id": row["report_id"], "history_url": "/history/" + row["report_id"],
-                              "label": row["label"], "level": row["level"], "created_at": row["created_at"]}
+    for reference in references:
+        key = (reference["file"], reference["row"], reference["signature"])
+        link = file_store.read_json(_reference_path(reference))
+        if link is not None:
+            found[key] = {name: link[name] for name in ("id", "history_url", "label", "level", "created_at")}
     return found
 
 
@@ -241,14 +201,12 @@ def run_batch(job_id, directory=None):
     """只执行已入队的本地任务；不恢复旧云端调用。"""
     directory = directory or _directory()
     with _lock:
-        with _connection(directory) as connection:
-            claimed = connection.execute(
-                "UPDATE risk_batches SET status = 'running', updated_at = ? "
-                "WHERE id = ? AND status = 'queued'",
-                (_now(), job_id),
-            ).rowcount
-        if not claimed:
-            return
+        with file_store.locked(_job_directory(directory)):
+            job = get_batch(job_id, directory)
+            if job is None or job["status"] != "queued":
+                return
+            job.update(status="running", updated_at=_now())
+            file_store.write_json(file_store.uuid_path(_job_directory(directory), job_id), job)
     return _run_batch(job_id, directory)
 
 
@@ -343,20 +301,17 @@ def _start_worker():
 def _worker_loop(directory):
     while True:
         with _lock:
-            with _connection(directory) as connection:
-                row = connection.execute(
-                    "SELECT id FROM risk_batches WHERE status = 'queued' "
-                    "ORDER BY created_at, id LIMIT 1",
-                ).fetchone()
-            if row is None:
+            jobs = [job for job in file_store.iter_records(_job_directory(directory)) if job["status"] == "queued"]
+            if not jobs:
                 _workers.pop(directory, None)
                 return
+            job_id = min(jobs, key=lambda job: (job["created_at"], job["id"]))["id"]
         try:
-            run_batch(row["id"], directory)
+            run_batch(job_id, directory)
         except Exception:
             # Avoid repeating a task whose latest model call may already have completed.
             try:
-                job = get_batch(row["id"], directory)
+                job = get_batch(job_id, directory)
                 job.update(status="interrupted", current_index=None,
                            error="任务执行中断；已保存的报告仍可查看，请检查本地存储后再操作。")
                 _save_job(job, directory)
