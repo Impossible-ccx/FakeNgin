@@ -181,6 +181,25 @@ class BM25CacheTests(unittest.TestCase):
             self.assertEqual(references[40:], [("sample.csv", index) for index in range(40, 45)])
             self.assertEqual(len(bm25.search("apple")), 3)
 
+    def test_near_equal_scores_preserve_main_document_term_order(self):
+        self.seed(contents=(
+            "alpha beta gamma", "alpha gamma beta", "beta gamma filler",
+            "gamma filler other", "gamma filler other", "filler other extra",
+        ))
+        # The first two documents have equal counts, but main's original
+        # accumulation order gives row 1 a slightly higher floating-point score.
+        # A shared query-term order would tie them and incorrectly put row 0 first.
+        expected = [("sample.csv", index) for index in (1, 0, 2, 3, 4)]
+        with self.split_words():
+            for query in ("alpha beta gamma", "gamma beta alpha", "beta alpha gamma alpha"):
+                with self.subTest(query=query):
+                    self.assertEqual(bm25.ranked_references(query), expected)
+                    self.assertEqual([row["_row"] for row in bm25.search(query)], [1, 0, 2])
+            disk = self.index_snapshot()
+            bm25.clear_cache()
+            self.assertEqual(bm25.ranked_references("alpha beta gamma"), expected)
+            self.assertEqual(self.index_snapshot(), disk)
+
     def test_restart_reuses_disk_index_without_retokenizing_messages(self):
         self.seed(contents=("apple", "banana"))
         with self.split_words() as tokenize:

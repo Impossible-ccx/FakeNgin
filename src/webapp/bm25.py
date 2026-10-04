@@ -382,8 +382,8 @@ def _build_snapshot():
             for doc_id, length in zip(lengths["doc_id"], lengths["length"])
         }
 
-        for doc_id, term, tf in zip(postings["doc_id"], postings["term"], postings["tf"]):
-            by_term[term].append((name, _as_int(doc_id), float(tf), length_map.get(_as_int(doc_id), 0)))
+        for position, (doc_id, term, tf) in enumerate(zip(postings["doc_id"], postings["term"], postings["tf"])):
+            by_term[term].append((name, _as_int(doc_id), float(tf), length_map.get(_as_int(doc_id), 0), position))
     return {"avgdl": avgdl, "idf": idf_map, "postings": dict(by_term)}
 
 
@@ -408,14 +408,22 @@ def ranked_references(query):
             query_key = (key, tokens)
             if query_key not in _rankings:
                 snapshot = _snapshots[key]
-                scores = defaultdict(float)
+                matches = defaultdict(list)
                 avgdl = snapshot["avgdl"]
                 for token in set(tokens):
-                    idf = snapshot["idf"].get(token, 0)
-                    for name, doc_id, tf, dl in snapshot["postings"].get(token, ()):
+                    idf = snapshot["idf"].get(token)
+                    if idf is None:
+                        continue
+                    for name, doc_id, tf, dl, position in snapshot["postings"].get(token, ()):
+                        matches[(name, doc_id)].append((position, idf, tf, dl))
+                scores = defaultdict(float)
+                for reference, postings in matches.items():
+                    # main 按原文词项首次出现顺序累加；换成查询词集合顺序会
+                    # 改变浮点舍入，令极接近的分数产生不同排名。
+                    for _position, idf, tf, dl in sorted(postings, key=lambda item: item[0]):
                         denominator = tf + BM25_K1 * (1 - BM25_B + BM25_B * dl / avgdl)
                         if denominator:
-                            scores[(name, doc_id)] += idf * tf * (BM25_K1 + 1) / denominator
+                            scores[reference] += idf * tf * (BM25_K1 + 1) / denominator
                 ranked = tuple(reference for reference, score in sorted(
                     scores.items(), key=lambda item: (-item[1], item[0][0], item[0][1]),
                 ) if score > 0)
