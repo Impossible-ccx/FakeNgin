@@ -36,18 +36,14 @@ _LEVEL_LABELS = {
 
 
 def get_risk_models():
-    models = checkmodel.get_models()
-    for model in models:
-        model["available"] = True
-    global RISK_MODELS 
-    RISK_MODELS = models
-    global _MODEL_BY_ID 
-    _MODEL_BY_ID = {model["id"]: model for model in RISK_MODELS}
-    return models
-    available_ids = {model["id"] for model in checkmodel.get_models()}
+    """只展示当前可用的风险模型，不改变固定的风险模型元数据。"""
+    available_ids = {
+        model["id"] for model in checkmodel.get_models()
+        if model.get("available", True) and model.get("score_kind", "risk") == "risk"
+    }
     return [
-        {**model, "available": model["id"] in available_ids}
-        for model in RISK_MODELS
+        {**model, "available": True}
+        for model in RISK_MODELS if model["id"] in available_ids
     ]
 
 
@@ -64,8 +60,8 @@ def _validate_request(message, model_ids, mode):
 
     selected = []
     for model_id in model_ids:
-        #if not isinstance(model_id, str) or model_id not in _MODEL_BY_ID:
-        #    raise ValueError("所选模型不能参与语言风险检测")
+        if not isinstance(model_id, str) or model_id not in _MODEL_BY_ID:
+            raise ValueError("所选模型不能参与语言风险检测")
         if model_id in selected:
             raise ValueError("不能重复选择同一个风险模型")
         selected.append(model_id)
@@ -117,6 +113,8 @@ def _check_member(message, model_id):
                 error="该模型当前不可用，请检查本地服务和模型权重",
             )
             return member
+        if getattr(model, "score_kind", "probability") != "risk":
+            raise CheckError("所选模型不提供风险评分，不能参与风险检测")
         score, level, reason = _validate_output(model.check(message))
         member.update(
             status="ok", score=score, level=level,

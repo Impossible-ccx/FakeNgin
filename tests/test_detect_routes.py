@@ -48,7 +48,7 @@ class DetectRouteTests(unittest.TestCase):
         self.stack.enter_context(patch.object(newsdata, "NEWSDATA_DIR", self.database_dir / "newsdata"))
         self.available_models = self.stack.enter_context(patch.object(checkmodel, "get_models", return_value=RISK_MODELS))
         self.model_instances = {
-            model_id: Mock(check=Mock(return_value=(80, "需要核实具体消息来源。")))
+            model_id: Mock(score_kind="risk", check=Mock(return_value=(80, "需要核实具体消息来源。")))
             for model_id in RISK_IDS
         }
         self.get_model = self.stack.enter_context(patch.object(checkmodel, "get_model", side_effect=self.lookup_model))
@@ -82,22 +82,45 @@ class DetectRouteTests(unittest.TestCase):
         self.assertTrue(self.contexts)
         return response, self.contexts[-1][1]
 
-    def test_get_with_no_models_keeps_all_choices_and_explains_unavailability(self):
+    def test_get_with_no_models_has_no_choices_and_explains_unavailability(self):
         self.available_models.return_value = []
         response = self.client.get("/detect")
         self.assertEqual(response.status_code, 200)
         context = self.contexts[-1][1]
-        self.assertEqual(context["mode"], "vote")
-        self.assertEqual(set(context["selected_ids"]), set(RISK_IDS))
+        self.assertEqual(context["mode"], "single")
+        self.assertEqual(context["selected_ids"], [])
         self.assertEqual(context["max_message_length"], 6000)
-        self.assertEqual({model["id"] for model in context["models"]}, set(RISK_IDS))
-        self.assertTrue(all(not model["available"] for model in context["models"]))
+        self.assertEqual(context["models"], [])
         html = response.get_data(as_text=True)
         for model in RISK_MODELS:
-            self.assertIn(model["display_name"], html)
+            self.assertNotIn(model["display_name"], html)
         self.assertRegex(html, "不可用|未就绪")
         self.assertIsNone(context["result"])
         self.get_model.assert_not_called()
+
+    def test_default_mode_and_selection_follow_only_available_risk_models(self):
+        for ids in ([RISK_IDS[2]], RISK_IDS[:2], RISK_IDS):
+            with self.subTest(ids=ids):
+                self.available_models.return_value = [model for model in RISK_MODELS if model["id"] in ids]
+                response = self.client.get("/detect")
+                self.assertEqual(response.status_code, 200)
+                context = self.contexts[-1][1]
+                self.assertEqual(context["selected_ids"], ids)
+                self.assertEqual(context["mode"], "single" if len(ids) == 1 else "vote")
+                self.assertEqual([model["id"] for model in context["models"]], ids)
+        self.get_model.assert_not_called()
+
+    def test_known_models_absent_after_a_page_refresh_return_unavailable_results(self):
+        self.available_models.return_value = []
+        self.model_instances.clear()
+        for endpoint in ("/detect", "/detect/check"):
+            with self.subTest(endpoint=endpoint):
+                _, context = self.submit(endpoint)
+                self.assertIsNone(context["error"])
+                self.assertEqual(context["result"]["selected_count"], 3)
+                self.assertEqual(context["result"]["success_count"], 0)
+                self.assertEqual(context["result"]["level"], "uncertain")
+                self.assertTrue(all(member["status"] == "unavailable" for member in context["result"]["members"]))
 
     def test_risk_roster_excludes_template_and_truth_classifier(self):
         self.available_models.return_value = RISK_MODELS + [

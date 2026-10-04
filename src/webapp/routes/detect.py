@@ -3,17 +3,18 @@
 from flask import render_template, request
 
 from checkmodel.ensemble import (
-    MAX_MESSAGE_LENGTH, RISK_MODELS, get_risk_models, run_risk_check,
+    MAX_MESSAGE_LENGTH, get_risk_models, run_risk_check,
 )
 from . import main
 
 
 def _context(form=None):
     models = get_risk_models()
+    selected_ids = [model["id"] for model in models]
     context = {
         "models": models,
-        "mode": "vote",
-        "selected_ids": [model["id"] for model in RISK_MODELS],
+        "mode": "vote" if len(selected_ids) > 1 else "single",
+        "selected_ids": selected_ids,
         "message": "",
         "result": None,
         "error": None,

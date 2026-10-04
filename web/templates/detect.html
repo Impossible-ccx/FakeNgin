@@ -41,7 +41,7 @@
                 <legend class="risk-section-heading"><span class="risk-step" aria-hidden="true">02</span> 选择检测方式</legend>
                 <div class="risk-mode-options">
                     <label class="risk-mode-option">
-                        <input type="radio" name="mode" value="vote" {% if mode != 'single' %}checked{% endif %}>
+                        <input type="radio" name="mode" value="vote" {% if available_models | length < 2 %}disabled{% endif %} {% if mode != 'single' %}checked{% endif %}>
                         <span><strong>多模型投票</strong><small>选择 2–3 个模型</small></span>
                     </label>
                     <label class="risk-mode-option">

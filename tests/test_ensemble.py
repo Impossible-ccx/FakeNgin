@@ -1,6 +1,7 @@
 """风险投票规则测试；所有模型调用均替换为本地 mock。"""
 
 from pathlib import Path
+from copy import deepcopy
 import sys
 import unittest
 from unittest.mock import Mock, patch
@@ -8,6 +9,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from checkmodel.base import CheckError, RiskAbstention
+from checkmodel import ensemble
 from checkmodel.ensemble import MAX_MESSAGE_LENGTH, get_risk_models, run_risk_check
 
 
@@ -22,7 +24,7 @@ class RiskVotingTests(unittest.TestCase):
             output = outputs[model_id]
             if isinstance(output, KeyError):
                 raise output
-            model = Mock()
+            model = Mock(score_kind="risk")
             if isinstance(output, Exception):
                 model.check.side_effect = output
             else:
@@ -223,12 +225,13 @@ class RiskVotingTests(unittest.TestCase):
         self.assertNotIn("SECRET", str(result))
 
     def test_keyerror_during_inference_is_error_not_unavailable(self):
-        model = Mock()
+        model = Mock(score_kind="risk")
         model.check.side_effect = KeyError("sensitive response")
         with patch("checkmodel.ensemble.checkmodel.get_model", return_value=model):
             result = run_risk_check("消息", MODEL_IDS[:1], mode="single")
         self.assertEqual(result["members"][0]["status"], "error")
         self.assertNotIn("sensitive", str(result))
+        model.check.assert_called_once_with("消息")
 
     def test_message_and_mode_validation_precedes_model_calls(self):
         invalid_requests = [
@@ -249,7 +252,7 @@ class RiskVotingTests(unittest.TestCase):
         calls = []
 
         def get_model(model_id):
-            model = Mock()
+            model = Mock(score_kind="risk")
             model.check.side_effect = lambda message: (calls.append((model_id, message)) or (20, "说明"))
             return model
 
@@ -259,13 +262,57 @@ class RiskVotingTests(unittest.TestCase):
         self.assertGreaterEqual(result["elapsed_seconds"], 0)
         self.assertTrue(all(member["elapsed_seconds"] >= 0 for member in result["members"]))
 
-    def test_model_listing_includes_unavailable_and_excludes_other_models(self):
+    def test_model_listing_only_includes_available_risk_models(self):
         available = [{"id": MODEL_IDS[0]}, {"id": "template_model"}, {"id": "roberta_rumor"}]
         with patch("checkmodel.ensemble.checkmodel.get_models", return_value=available):
             models = get_risk_models()
-        self.assertEqual([model["id"] for model in models], MODEL_IDS)
-        self.assertEqual([model["available"] for model in models], [True, False, False])
+        self.assertEqual([model["id"] for model in models], MODEL_IDS[:1])
+        self.assertEqual([model["available"] for model in models], [True])
         self.assertTrue(all(model["display_name"] and model["description"] for model in models))
+
+    def test_listing_does_not_mutate_factory_metadata_or_the_risk_registry(self):
+        original_roster = deepcopy(ensemble.RISK_MODELS)
+        original_lookup = deepcopy(ensemble._MODEL_BY_ID)
+        factory_models = [{"id": MODEL_IDS[0]}, {"id": "roberta_rumor"}]
+        original_factory_models = deepcopy(factory_models)
+        with patch("checkmodel.ensemble.checkmodel.get_models", return_value=factory_models):
+            models = get_risk_models()
+        models[0]["display_name"] = "changed UI label"
+        self.assertEqual(factory_models, original_factory_models)
+        self.assertEqual(ensemble.RISK_MODELS, original_roster)
+        self.assertEqual(ensemble._MODEL_BY_ID, original_lookup)
+        with patch("checkmodel.ensemble.checkmodel.get_models", return_value=[]):
+            self.assertEqual(get_risk_models(), [])
+        result = self.run_check(self.scores(80, 90, 10))
+        self.assertEqual(result["selected_count"], 3)
+        self.assertEqual(result["level"], "high")
+
+    def test_non_string_model_ids_are_rejected_before_any_model_lookup(self):
+        for model_id in (None, True, 3, [], {}, [MODEL_IDS[0]]):
+            with self.subTest(model_id=model_id):
+                with patch("checkmodel.ensemble.checkmodel.get_model") as get_model:
+                    with self.assertRaises(ValueError):
+                        run_risk_check("消息", [model_id], mode="single")
+                    get_model.assert_not_called()
+
+    def test_probability_adapter_cannot_vote_even_under_a_known_risk_model_id(self):
+        adapter = Mock(score_kind="probability", check=Mock(return_value=(99, "真假概率")))
+        with patch("checkmodel.ensemble.checkmodel.get_model", return_value=adapter):
+            result = run_risk_check("消息", MODEL_IDS[:1], mode="single")
+        self.assertEqual(result["success_count"], 0)
+        self.assertEqual(result["level"], "uncertain")
+        self.assertEqual(result["members"][0]["status"], "error")
+        self.assertIn("不提供风险评分", result["members"][0]["error"])
+        adapter.check.assert_not_called()
+
+    def test_listing_excludes_explicitly_non_risk_or_unavailable_adapters(self):
+        available = [
+            {"id": MODEL_IDS[0], "score_kind": "probability"},
+            {"id": MODEL_IDS[1], "available": False},
+            {"id": MODEL_IDS[2], "score_kind": "risk"},
+        ]
+        with patch("checkmodel.ensemble.checkmodel.get_models", return_value=available):
+            self.assertEqual([model["id"] for model in get_risk_models()], MODEL_IDS[2:])
 
 
 if __name__ == "__main__":
