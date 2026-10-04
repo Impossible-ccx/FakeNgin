@@ -36,14 +36,7 @@ _LEVEL_LABELS = {
 
 
 def get_risk_models():
-    models = checkmodel.get_models()
-    for model in models:
-        model["available"] = True
-    global RISK_MODELS 
-    RISK_MODELS = models
-    global _MODEL_BY_ID 
-    _MODEL_BY_ID = {model["id"]: model for model in RISK_MODELS}
-    return models
+    """始终列出三个正式风险模型，并标明当前是否可用。"""
     available_ids = {model["id"] for model in checkmodel.get_models()}
     return [
         {**model, "available": model["id"] in available_ids}
@@ -64,8 +57,8 @@ def _validate_request(message, model_ids, mode):
 
     selected = []
     for model_id in model_ids:
-        #if not isinstance(model_id, str) or model_id not in _MODEL_BY_ID:
-        #    raise ValueError("所选模型不能参与语言风险检测")
+        if not isinstance(model_id, str) or model_id not in _MODEL_BY_ID:
+            raise ValueError("所选模型不能参与语言风险检测")
         if model_id in selected:
             raise ValueError("不能重复选择同一个风险模型")
         selected.append(model_id)
