@@ -3,7 +3,7 @@
 用法：
     python src/train_rumor_model.py
 
-数据来源：database/newsdata/output/ 下的 csv（nature 列 True=谣言 / False=非谣言），
+数据来源：database/newsdata/output/ 下的 csv（nature 列 虚假=谣言 / 真实=非谣言），
 不涉及 newsdata 顶层的应用数据。
 产出：models/rumor-roberta/，供 checkmodel/roberta_classifier.py 加载。
 
@@ -41,7 +41,7 @@ LEARNING_RATE = 2e-5
 WEIGHT_DECAY = 0.01
 VAL_RATIO = 0.1
 SEED = 42
-POSITIVE_LABEL = "True"  # nature 为 True 表示谣言
+POSITIVE_LABEL = "虚假"  # nature 为 True 表示谣言
 
 
 def load_rumor_dataset():
@@ -50,10 +50,10 @@ def load_rumor_dataset():
         df = pd.read_csv(path, dtype=str).fillna("")
         if "nature" not in df.columns or "content" not in df.columns:
             continue
-        df = df[df["nature"].isin(["True", "False"])]
+        df = df[df["nature"].isin(["虚假", "真实"])]
         frames.append(df[["content", "nature"]])
     if not frames:
-        raise SystemExit("未找到带 True/False 标签的数据，请检查 {}".format(DATA_DIR))
+        raise SystemExit("未找到带 虚假/真实 标签的数据，请检查 {}".format(DATA_DIR))
 
     data = pd.concat(frames, ignore_index=True)
     data = data.drop_duplicates(subset="content").reset_index(drop=True)

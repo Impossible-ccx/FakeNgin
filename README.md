@@ -35,10 +35,10 @@ python src/app.py
 
 初始等级界线（尚未经过数据集校准）：
 
-| 风险分 | 等级 |
-| --- | --- |
-| 0 ≤ 分数 < 40 | 低风险 |
-| 40 ≤ 分数 < 70 | 中风险 |
+| 风险分          | 等级   |
+| --------------- | ------ |
+| 0 ≤ 分数 < 40   | 低风险 |
+| 40 ≤ 分数 < 70  | 中风险 |
 | 70 ≤ 分数 ≤ 100 | 高风险 |
 
 - **单模型**：选择一个模型，显示它的风险分、等级、理由和耗时。
@@ -80,7 +80,7 @@ pip install torch transformers
 python src/train_rumor_model.py
 ```
 
-训练数据为 `database/newsdata/output/` 下 CSV，`nature=True` 表示谣言，`False` 表示非谣言；权重输出到 `models/rumor-roberta/`。首次运行下载基座模型，脚本默认通过 `hf-mirror.com`，可使用 `HF_ENDPOINT` 覆盖。仓库不包含训练权重或真实模型评测结论。
+训练数据为 `database/newsdata/output/` 下 CSV；权重输出到 `models/rumor-roberta/`。首次运行下载基座模型，脚本默认通过 `hf-mirror.com`，可使用 `HF_ENDPOINT` 覆盖。仓库不包含训练权重或真实模型评测结论。
 
 ## 测试
 
