@@ -10,10 +10,6 @@ class CheckError(Exception):
     """检测过程失败（请求异常、结果无法解析等）。"""
 
 
-class RiskAbstention(CheckError):
-    """模型成功响应，但输入信息不足以给出风险评分。"""
-
-
 class CheckModel:
     name = ""
     display_name = ""
@@ -30,6 +26,6 @@ class CheckModel:
     def check(self, message) -> tuple[float, str]:
         """检测消息，返回 (0-100 分值, 额外信息字符串)。
 
-        失败时抛出 CheckError；无法评估时抛出 RiskAbstention。
+        失败时抛出 CheckError。
         """
         raise NotImplementedError

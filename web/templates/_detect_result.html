@@ -6,8 +6,7 @@
 </section>
 {% elif result %}
 {% set failed_count = (result.members | selectattr('status', 'equalto', 'error') | list | length) + (result.members | selectattr('status', 'equalto', 'unavailable') | list | length) %}
-{% set abstained_count = result.members | selectattr('status', 'equalto', 'abstained') | list | length %}
-{% set status_labels = {'ok': '已完成', 'error': '失败', 'unavailable': '不可用', 'abstained': '弃权'} %}
+{% set status_labels = {'ok': '已完成', 'error': '失败', 'unavailable': '不可用'} %}
 <section class="risk-report" data-risk-result aria-labelledby="risk-result-title">
     <header class="risk-report-heading">
         <div>
@@ -40,7 +39,7 @@
     <div class="risk-fallback-note">
         <strong>平均分兜底{% if result.success_count == 1 %} · 仅 1 个有效结果{% endif %}</strong>
         <p>{{ result.fallback_reason }}{% if result.success_count == 1 %} 本次结果仅来自一个模型，未形成多模型共识。{% endif %}</p>
-        <p>仅对成功返回的风险分取算术平均；失败、不可用和弃权不参与均值计算。均分不是真假概率。</p>
+        <p>仅对成功返回的风险分取算术平均；失败和不可用不参与均值计算。均分不是真假概率。</p>
     </div>
     {% endif %}
 
@@ -61,10 +60,9 @@
         {% endif %}
         <div><dt>有效结果</dt><dd>{{ result.success_count }} / {{ result.selected_count }}</dd></div>
         <div><dt>失败或不可用</dt><dd>{{ failed_count }}</dd></div>
-        <div><dt>弃权</dt><dd>{{ abstained_count }}</dd></div>
     </dl>
     {% if result.mode == 'vote' %}
-    <p class="risk-voting-note">每个模型按风险等级投一票，多数门槛按选定模型总数计算。未达到多数票时，对有效风险分取算术平均后分档；没有有效结果时显示无法判断。失败、不可用和弃权不降低多数门槛，也不参与均值计算。</p>
+    <p class="risk-voting-note">每个模型按风险等级投一票，多数门槛按选定模型总数计算。未达到多数票时，对有效风险分取算术平均后分档；没有有效结果时显示无法判断。失败和不可用不降低多数门槛，也不参与均值计算。</p>
     {% endif %}
 
     <div class="risk-members-heading">
@@ -89,7 +87,6 @@
             {% if member.reason %}<p class="risk-member-reason">{{ member.reason }}</p>{% endif %}
             {% if member.error %}<p class="risk-member-error">{{ member.error }}</p>{% endif %}
             {% if member.status == 'ok' and not member.reason %}<p class="risk-member-reason">模型未提供判断理由。</p>{% endif %}
-            {% if member.status == 'abstained' %}<p class="risk-member-note">本次弃权，不计入任何风险等级的票数。</p>{% endif %}
             <footer class="risk-member-footer">耗时 {{ '%.1f' | format(member.elapsed_seconds) }} 秒</footer>
         </article>
         {% endfor %}

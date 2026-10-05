@@ -231,20 +231,6 @@ class DetectRouteTests(unittest.TestCase):
         self.assertTrue(result["has_failures"])
         self.assertEqual([call.args[0] for call in self.get_model.call_args_list], RISK_IDS)
 
-    def test_abstention_is_visible_and_does_not_count_as_medium_risk(self):
-        from checkmodel.base import RiskAbstention
-
-        self.model_instances[RISK_IDS[2]].check.side_effect = RiskAbstention("文本不足以评估传播风险")
-        response, context = self.submit()
-        result = context["result"]
-        self.assertIsNone(context["error"])
-        self.assertEqual(result["level"], "high")
-        self.assertEqual(result["votes"]["high"], 2)
-        self.assertEqual(result["votes"]["medium"], 0)
-        self.assertEqual(result["majority_required"], 2)
-        self.assertEqual(result["members"][2]["status"], "abstained")
-        self.assertIn("文本不足以评估传播风险", response.get_data(as_text=True))
-
     def test_two_selected_models_with_split_vote_use_arithmetic_mean(self):
         self.configure_scores([25, 80, 80])
         _, context = self.submit(models=RISK_IDS[:2])

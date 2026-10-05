@@ -1804,8 +1804,7 @@ a {
 .risk-member-status { flex-shrink: 0; padding: 2px 6px; border-radius: 4px; font-size: 10px; white-space: nowrap; }
 .risk-status-ok { background: #edf6f1; color: #2d6e51; }
 .risk-status-error { background: #fff0ef; color: #ab4845; }
-.risk-status-unavailable,
-.risk-status-abstained { background: #f0f3f8; color: #596c84; }
+.risk-status-unavailable { background: #f0f3f8; color: #596c84; }
 .risk-member-summary { flex-wrap: wrap; margin: 19px 0 14px; gap: 8px; }
 .risk-member-score strong { font-size: 27px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
 .risk-member-score span { color: var(--risk-muted); font-size: 11px; }

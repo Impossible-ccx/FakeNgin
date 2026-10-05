@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from checkmodel.base import CheckError, RiskAbstention
+from checkmodel.base import CheckError
 from checkmodel.ensemble import MAX_MESSAGE_LENGTH, get_risk_models, run_risk_check
 
 
@@ -104,8 +104,8 @@ class RiskVotingTests(unittest.TestCase):
         self.assertEqual(result["decision_method"], "mean_fallback")
         self.assertEqual(result["mean_score"], 50)
 
-    def test_mean_denominator_excludes_errors_and_abstentions(self):
-        for missing in [CheckError("超时"), KeyError("未安装"), RiskAbstention("信息不足")]:
+    def test_mean_denominator_excludes_errors(self):
+        for missing in [CheckError("超时"), KeyError("未安装")]:
             with self.subTest(missing=type(missing).__name__):
                 outputs = self.scores(50, 90)
                 outputs[MODEL_IDS[2]] = missing
@@ -176,28 +176,6 @@ class RiskVotingTests(unittest.TestCase):
                 run_risk_check("消息", selected)
         with self.assertRaises(ValueError):
             run_risk_check("消息", [MODEL_IDS[0], MODEL_IDS[0]], mode="single")
-
-    def test_abstention_is_neither_vote_nor_runtime_failure(self):
-        outputs = self.scores(80, 90)
-        outputs[MODEL_IDS[2]] = RiskAbstention("消息信息不足")
-        result = self.run_check(outputs)
-        self.assertEqual(result["level"], "high")
-        self.assertEqual(result["success_count"], 2)
-        self.assertEqual(result["selected_count"], 3)
-        self.assertFalse(result["has_failures"])
-        member = result["members"][2]
-        self.assertEqual(member["status"], "abstained")
-        self.assertEqual(member["reason"], "消息信息不足")
-        self.assertIsNone(member["score"])
-        self.assertIsNone(member["error"])
-
-    def test_all_abstentions_are_uncertain(self):
-        result = self.run_check({model_id: RiskAbstention("无法判断") for model_id in MODEL_IDS})
-        self.assertEqual(result["level"], "uncertain")
-        self.assertEqual(result["success_count"], 0)
-        self.assertEqual(result["decision_method"], "unavailable")
-        self.assertIsNone(result["mean_score"])
-        self.assertFalse(result["has_failures"])
 
     def test_single_model_is_explicitly_marked(self):
         result = self.run_check(self.scores(90), MODEL_IDS[:1], mode="single")

@@ -9,7 +9,7 @@ from time import perf_counter
 
 import checkmodel
 
-from .base import CheckError, RiskAbstention
+from .base import CheckError
 
 
 MAX_MESSAGE_LENGTH = 6000
@@ -121,11 +121,6 @@ def _check_member(message, model_id):
         member.update(
             status="ok", score=score, level=level,
             label=_LEVEL_LABELS[level], reason=reason,
-        )
-    except RiskAbstention as exc:
-        member.update(
-            status="abstained", label="无法判断",
-            reason=str(exc).strip() or "模型无法评估这条消息的语言风险",
         )
     except CheckError as exc:
         member["error"] = str(exc).strip() or "模型检测失败，请稍后重试"

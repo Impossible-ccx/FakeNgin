@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from checkmodel.base import CheckError, RiskAbstention
+from checkmodel.base import CheckError
 from checkmodel.ollama_deepseek import Ollama_DeepSeek
 from checkmodel.ollama_qwen25 import Ollama_Qwen25
 
@@ -51,14 +51,14 @@ class OllamaRiskTests(unittest.TestCase):
                 with self.assertRaises(CheckError):
                     Ollama_Qwen25()._request(client, "待评估消息")
 
-    def test_abstention_is_not_retried_or_coerced_to_a_score(self):
+    def test_null_score_is_rejected_and_retried(self):
         client = Mock()
         client.chat.return_value = response({"risk_score": None, "reason": "上下文不足"})
         fake_ollama = types.SimpleNamespace(Client=Mock(return_value=client))
         with patch.dict(sys.modules, {"ollama": fake_ollama}):
-            with self.assertRaisesRegex(RiskAbstention, "上下文不足"):
+            with self.assertRaises(CheckError):
                 Ollama_Qwen25().check("这个是真的")
-        self.assertEqual(client.chat.call_count, 1)
+        self.assertEqual(client.chat.call_count, 2)
 
     def test_bad_response_can_retry_successfully(self):
         client = Mock()
